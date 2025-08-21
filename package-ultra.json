@@ -1,0 +1,52 @@
+{
+  "name": "optica-app",
+  "version": "1.0.0",
+  "description": "Ultra-Fast optica BFF with PostgreSQL Integration - Production Ready",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "dev:ultra": "tsx watch src/ultraFastIndex.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:ultra": "node dist/ultraFastIndex.js",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "type-check": "tsc --noEmit",
+    "db:migrate": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "db:seed": "tsx src/scripts/seed.ts",
+    "db:studio": "prisma studio",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "clean": "rm -rf dist",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "bff",
+    "backend-for-frontend",
+    "woocommerce",
+    "postgresql",
+    "prisma",
+    "hono",
+    "ultra-fast",
+    "production-ready"
+  ],
+  "author": "optica Team",
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^1.12.0",
+    "@prisma/client": "^5.7.1",
+    "hono": "^3.12.0",
+    "prisma": "^5.7.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "tsx": "^4.6.2",
+    "typescript": "^5.3.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

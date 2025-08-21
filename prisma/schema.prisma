@@ -1,0 +1,684 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// WORDPRESS CORE TABLES
+// ========================================
+
+// Posts table (products, pages, posts, attachments) - EXACT MySQL match
+model Post {
+  ID                    BigInt   @id @default(autoincrement()) @map("ID")
+  post_author           BigInt   @default(0) @map("post_author")
+  post_date             DateTime @default(now()) @map("post_date")
+  post_date_gmt         DateTime @default(now()) @map("post_date_gmt")
+  post_content          String   @db.Text @map("post_content")
+  post_title            String   @db.Text @map("post_title")
+  post_excerpt          String   @db.Text @map("post_excerpt")
+  post_status           String   @default("publish") @db.VarChar(20) @map("post_status")
+  comment_status        String   @default("open") @db.VarChar(20) @map("comment_status")
+  ping_status           String   @default("open") @db.VarChar(20) @map("ping_status")
+  post_password         String   @default("") @db.VarChar(255) @map("post_password")
+  post_name             String   @default("") @db.VarChar(200) @map("post_name")
+  to_ping               String   @default("") @db.Text @map("to_ping")
+  pinged                String   @default("") @db.Text @map("pinged")
+  post_modified         DateTime @default(now()) @map("post_modified")
+  post_modified_gmt     DateTime @default(now()) @map("post_modified_gmt")
+  post_content_filtered String   @default("") @db.Text @map("post_content_filtered")
+  post_parent           BigInt   @default(0) @map("post_parent")
+  guid                  String   @default("") @db.VarChar(255) @map("guid")
+  menu_order            Int      @default(0) @map("menu_order")
+  post_type             String   @default("post") @db.VarChar(20) @map("post_type")
+  post_mime_type        String   @default("") @db.VarChar(100) @map("post_mime_type")
+  comment_count         BigInt   @default(0) @map("comment_count")
+
+  // Relations
+  meta       PostMeta[]        @relation("PostMeta")
+  comments   Comment[]         @relation("PostComments")
+  terms      TermRelationship[] @relation("PostTerms")
+
+  @@map("wp_posts")
+  @@index([post_name])
+  @@index([post_type, post_status, post_date, ID])
+  @@index([post_parent])
+  @@index([post_author])
+}
+
+// Post meta data
+model PostMeta {
+  meta_id    BigInt  @id @default(autoincrement()) @map("meta_id")
+  post_id    BigInt  @default(0) @map("post_id")
+  meta_key   String? @db.VarChar(255) @map("meta_key")
+  meta_value String? @db.Text @map("meta_value")
+
+  // Relations
+  post Post @relation("PostMeta", fields: [post_id], references: [ID], onDelete: Cascade)
+
+  @@map("wp_postmeta")
+  @@index([post_id])
+  @@index([meta_key])
+}
+
+// Comments table - EXACT MySQL match
+model Comment {
+  comment_ID           BigInt   @id @default(autoincrement()) @map("comment_ID")
+  comment_post_ID      BigInt   @default(0) @map("comment_post_ID")
+  comment_author       String   @default("") @db.Text @map("comment_author")
+  comment_author_email String   @default("") @db.VarChar(100) @map("comment_author_email")
+  comment_author_url   String   @default("") @db.VarChar(200) @map("comment_author_url")
+  comment_author_IP    String   @default("") @db.VarChar(100) @map("comment_author_IP")
+  comment_date         DateTime @default(now()) @map("comment_date")
+  comment_date_gmt     DateTime @default(now()) @map("comment_date_gmt")
+  comment_content      String   @default("") @db.Text @map("comment_content")
+  comment_karma        Int      @default(0) @map("comment_karma")
+  comment_approved     String   @default("1") @db.VarChar(20) @map("comment_approved")
+  comment_agent        String   @default("") @db.VarChar(255) @map("comment_agent")
+  comment_type         String   @default("comment") @db.VarChar(20) @map("comment_type")
+  comment_parent       BigInt   @default(0) @map("comment_parent")
+  user_id              BigInt   @default(0) @map("user_id")
+
+  // Relations
+  post Post           @relation("PostComments", fields: [comment_post_ID], references: [ID], onDelete: Cascade)
+  meta CommentMeta[]  @relation("CommentMeta")
+  user User?          @relation("UserComments", fields: [user_id], references: [id])
+
+  @@map("wp_comments")
+  @@index([comment_post_ID])
+  @@index([comment_approved, comment_date_gmt])
+  @@index([comment_date_gmt])
+  @@index([comment_parent])
+  @@index([comment_author_email])
+}
+
+// Comment meta data - EXACT MySQL match
+model CommentMeta {
+  meta_id    BigInt  @id @default(autoincrement()) @map("meta_id")
+  comment_id BigInt  @default(0) @map("comment_id")
+  meta_key   String? @db.VarChar(255) @map("meta_key")
+  meta_value String? @db.Text @map("meta_value")
+
+  // Relations
+  comment Comment @relation("CommentMeta", fields: [comment_id], references: [comment_ID], onDelete: Cascade)
+
+  @@map("wp_commentmeta")
+  @@index([comment_id])
+  @@index([meta_key])
+}
+
+// Users table
+model User {
+  id                  BigInt   @id @default(autoincrement()) @map("ID")
+  user_login          String   @default("") @db.VarChar(60) @map("user_login")
+  user_pass           String   @default("") @db.VarChar(255) @map("user_pass")
+  user_nicename       String   @default("") @db.VarChar(50) @map("user_nicename")
+  user_email          String   @default("") @db.VarChar(100) @map("user_email")
+  user_url            String   @default("") @db.VarChar(100) @map("user_url")
+  user_registered     DateTime @default(now()) @map("user_registered")
+  user_activation_key String   @default("") @db.VarChar(255) @map("user_activation_key")
+  user_status         Int      @default(0) @map("user_status")
+  display_name        String   @default("") @db.VarChar(250) @map("display_name")
+
+  // Relations
+  meta     UserMeta[]  @relation("UserMeta")
+  comments Comment[]   @relation("UserComments")
+  customer Customer?   @relation("CustomerUser")
+
+  @@map("wp_users")
+  @@index([user_login])
+  @@index([user_nicename])
+  @@index([user_email])
+}
+
+// User meta data - EXACT MySQL match  
+model UserMeta {
+  umeta_id   BigInt  @id @default(autoincrement()) @map("umeta_id")
+  user_id    BigInt  @default(0) @map("user_id")
+  meta_key   String? @db.VarChar(255) @map("meta_key")
+  meta_value String? @db.Text @map("meta_value")
+
+  // Relations
+  user User @relation("UserMeta", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("wp_usermeta")
+  @@index([user_id])
+  @@index([meta_key])
+}
+
+// Terms (categories, tags, attributes)
+model Term {
+  term_id    BigInt @id @default(autoincrement()) @map("term_id")
+  name       String @default("") @db.VarChar(200) @map("name")
+  slug       String @default("") @db.VarChar(200) @map("slug")
+  term_group BigInt @default(0) @map("term_group")
+
+  // Relations
+  taxonomies     TermTaxonomy[]     @relation("TermTaxonomies")
+  relationships  TermRelationship[] @relation("TermRelationships")
+  meta           TermMeta[]         @relation("TermMeta")
+
+  @@map("wp_terms")
+  @@index([slug])
+  @@index([name])
+}
+
+// Term taxonomy (category types, tag types, etc.)
+model TermTaxonomy {
+  term_taxonomy_id BigInt @id @default(autoincrement()) @map("term_taxonomy_id")
+  term_id          BigInt @map("term_id")
+  taxonomy         String @default("") @db.VarChar(32) @map("taxonomy")
+  description      String @db.Text @map("description")
+  parent           BigInt @default(0) @map("parent")
+  count            BigInt @default(0) @map("count")
+
+  // Relations
+  term          Term               @relation("TermTaxonomies", fields: [term_id], references: [term_id], onDelete: Cascade)
+  relationships TermRelationship[] @relation("TaxonomyRelationships")
+
+  @@map("wp_term_taxonomy")
+  @@unique([term_id, taxonomy])
+  @@index([taxonomy])
+}
+
+// Term relationships (connecting posts to terms) - EXACT MySQL match
+model TermRelationship {
+  object_id        BigInt @map("object_id")
+  term_taxonomy_id BigInt @map("term_taxonomy_id")
+  term_order       Int    @default(0) @map("term_order")
+
+  // Relations
+  post     Post         @relation("PostTerms", fields: [object_id], references: [ID], onDelete: Cascade)
+  taxonomy TermTaxonomy @relation("TaxonomyRelationships", fields: [term_taxonomy_id], references: [term_taxonomy_id], onDelete: Cascade, map: "fk_term_relationship_taxonomy")
+  term     Term         @relation("TermRelationships", fields: [term_taxonomy_id], references: [term_id], map: "fk_term_relationship_term")
+
+  @@id([object_id, term_taxonomy_id])
+  @@map("wp_term_relationships")
+  @@index([term_taxonomy_id])
+}
+
+// Term meta data
+model TermMeta {
+  meta_id    BigInt  @id @default(autoincrement()) @map("meta_id")
+  term_id    BigInt  @map("term_id")
+  meta_key   String? @db.VarChar(255) @map("meta_key")
+  meta_value String? @db.Text @map("meta_value")
+
+  // Relations
+  term Term @relation("TermMeta", fields: [term_id], references: [term_id], onDelete: Cascade)
+
+  @@map("wp_termmeta")
+  @@index([term_id])
+  @@index([meta_key])
+}
+
+// WordPress options
+model Option {
+  option_id    BigInt @id @default(autoincrement()) @map("option_id")
+  option_name  String @unique @default("") @db.VarChar(191) @map("option_name")
+  option_value String @db.Text @map("option_value")
+  autoload     String @default("yes") @db.VarChar(20) @map("autoload")
+
+  @@map("wp_options")
+  @@index([autoload])
+}
+
+// ========================================
+// WOOCOMMERCE CORE TABLES
+// ========================================
+
+// WooCommerce product lookup table
+model WcProductMetaLookup {
+  product_id            BigInt   @id @map("product_id")
+  sku                   String?  @db.VarChar(100) @map("sku")
+  virtual               Boolean  @default(false) @map("virtual")
+  downloadable          Boolean  @default(false) @map("downloadable")
+  min_price             Decimal? @db.Decimal(19, 4) @map("min_price")
+  max_price             Decimal? @db.Decimal(19, 4) @map("max_price")
+  onsale                Boolean  @default(false) @map("onsale")
+  stock_quantity        Decimal? @db.Decimal(10, 2) @map("stock_quantity")
+  stock_status          String   @default("instock") @db.VarChar(100) @map("stock_status")
+  rating_count          BigInt   @default(0) @map("rating_count")
+  average_rating        Decimal  @default(0) @db.Decimal(3, 2) @map("average_rating")
+  total_sales           BigInt   @default(0) @map("total_sales")
+  tax_status            String   @default("taxable") @db.VarChar(100) @map("tax_status")
+  tax_class             String   @default("") @db.VarChar(100) @map("tax_class")
+
+  @@map("wp_wc_product_meta_lookup")
+  @@index([sku])
+  @@index([virtual])
+  @@index([downloadable])
+  @@index([stock_status])
+  @@index([onsale])
+  @@index([min_price])
+  @@index([max_price])
+}
+
+// WooCommerce product attributes lookup
+model WcProductAttributesLookup {
+  product_id                BigInt  @map("product_id")
+  product_or_parent_id      BigInt  @map("product_or_parent_id")
+  taxonomy                  String  @db.VarChar(32) @map("taxonomy")
+  term_id                   BigInt  @map("term_id")
+  is_variation_attribute    Boolean @default(false) @map("is_variation_attribute")
+  in_stock                  Boolean @map("in_stock")
+
+  @@id([product_id, product_or_parent_id, taxonomy, term_id])
+  @@map("wp_wc_product_attributes_lookup")
+  @@index([product_or_parent_id])
+  @@index([taxonomy])
+  @@index([term_id])
+}
+
+// WooCommerce category lookup
+model WcCategoryLookup {
+  category_tree_id BigInt @map("category_tree_id")
+  category_id      BigInt @map("category_id")
+
+  @@id([category_tree_id, category_id])
+  @@map("wp_wc_category_lookup")
+}
+
+// WooCommerce customer lookup
+model WcCustomerLookup {
+  customer_id      BigInt   @id @map("customer_id")
+  user_id          BigInt?  @map("user_id")
+  username         String   @default("") @db.VarChar(60) @map("username")
+  email            String?  @db.VarChar(100) @map("email")
+  first_name       String   @default("") @db.VarChar(255) @map("first_name")
+  last_name        String   @default("") @db.VarChar(255) @map("last_name")
+  date_registered  DateTime? @map("date_registered")
+  date_last_active DateTime? @map("date_last_active")
+  orders_count     Int?     @map("orders_count")
+  total_spend      Decimal? @db.Decimal(26, 8) @map("total_spend")
+  avg_order_value  Decimal? @db.Decimal(26, 8) @map("avg_order_value")
+  country          String   @default("") @db.VarChar(2) @map("country")
+  postcode         String   @default("") @db.VarChar(20) @map("postcode")
+  city             String   @default("") @db.VarChar(100) @map("city")
+  state            String   @default("") @db.VarChar(100) @map("state")
+
+  @@map("wp_wc_customer_lookup")
+  @@index([user_id])
+  @@index([email])
+}
+
+// WooCommerce order stats
+model WcOrderStats {
+  order_id              BigInt   @id @map("order_id")
+  parent_id             BigInt   @default(0) @map("parent_id")
+  date_created          DateTime @map("date_created")
+  date_created_gmt      DateTime @map("date_created_gmt")
+  date_paid             DateTime? @map("date_paid")
+  date_completed        DateTime? @map("date_completed")
+  num_items_sold        Int      @default(0) @map("num_items_sold")
+  total_sales           Decimal  @default(0) @db.Decimal(26, 8) @map("total_sales")
+  tax_total             Decimal  @default(0) @db.Decimal(26, 8) @map("tax_total")
+  shipping_total        Decimal  @default(0) @db.Decimal(26, 8) @map("shipping_total")
+  net_total             Decimal  @default(0) @db.Decimal(26, 8) @map("net_total")
+  returning_customer    Boolean  @default(false) @map("returning_customer")
+  status                String   @db.VarChar(200) @map("status")
+  customer_id           BigInt   @map("customer_id")
+
+  @@map("wp_wc_order_stats")
+  @@index([date_created])
+  @@index([customer_id])
+  @@index([status])
+}
+
+// WooCommerce order product lookup
+model WcOrderProductLookup {
+  order_item_id        BigInt  @id @map("order_item_id")
+  order_id             BigInt  @map("order_id")
+  product_id           BigInt  @map("product_id")
+  variation_id         BigInt  @default(0) @map("variation_id")
+  customer_id          BigInt? @map("customer_id")
+  date_created         DateTime @map("date_created")
+  product_qty          Int     @map("product_qty")
+  product_net_revenue  Decimal @db.Decimal(26, 8) @map("product_net_revenue")
+  product_gross_revenue Decimal @db.Decimal(26, 8) @map("product_gross_revenue")
+  coupon_amount        Decimal @default(0) @db.Decimal(26, 8) @map("coupon_amount")
+  tax_amount           Decimal @default(0) @db.Decimal(26, 8) @map("tax_amount")
+  shipping_amount      Decimal @default(0) @db.Decimal(26, 8) @map("shipping_amount")
+  shipping_tax_amount  Decimal @default(0) @db.Decimal(26, 8) @map("shipping_tax_amount")
+
+  @@map("wp_wc_order_product_lookup")
+  @@index([order_id])
+  @@index([product_id])
+  @@index([customer_id])
+  @@index([date_created])
+}
+
+// WooCommerce order items
+model WoocommerceOrderItem {
+  order_item_id   BigInt @id @default(autoincrement()) @map("order_item_id")
+  order_item_name String @db.Text @map("order_item_name")
+  order_item_type String @default("") @db.VarChar(200) @map("order_item_type")
+  order_id        BigInt @map("order_id")
+
+  // Relations
+  meta WoocommerceOrderItemMeta[] @relation("OrderItemMeta")
+
+  @@map("wp_woocommerce_order_items")
+  @@index([order_id])
+}
+
+// WooCommerce order item meta
+model WoocommerceOrderItemMeta {
+  meta_id         BigInt  @id @default(autoincrement()) @map("meta_id")
+  order_item_id   BigInt  @map("order_item_id")
+  meta_key        String? @db.VarChar(255) @map("meta_key")
+  meta_value      String? @db.Text @map("meta_value")
+
+  // Relations
+  order_item WoocommerceOrderItem @relation("OrderItemMeta", fields: [order_item_id], references: [order_item_id], onDelete: Cascade)
+
+  @@map("wp_woocommerce_order_itemmeta")
+  @@index([order_item_id])
+  @@index([meta_key])
+}
+
+// ========================================
+// CUSTOM BUSINESS TABLES (LENS/OPTICS) - EXACT MySQL match
+// ========================================
+
+// Orders model - Maps to wp_posts with post_type = 'shop_order'  
+model Order {
+  id            BigInt   @id @default(autoincrement()) @map("ID")
+  woocommerce_id BigInt? @unique @map("woocommerce_id")
+  order_number  String?  @db.VarChar(100) @map("order_number")
+  customer_id   BigInt?  @map("customer_id")
+  order_status  String   @default("pending") @db.VarChar(20) @map("order_status")
+  total         Decimal? @db.Decimal(10,2) @map("total")
+  currency      String?  @db.VarChar(3) @map("currency")
+  date_created  DateTime @default(now()) @map("date_created")
+  date_modified DateTime @updatedAt @map("date_modified")
+  
+  @@map("wp_shop_orders")
+  @@index([customer_id])
+  @@index([order_status])
+  @@index([date_created])
+  @@index([woocommerce_id])
+}
+
+// Customers model - Extends User model for WooCommerce
+model Customer {
+  id                BigInt   @id @default(autoincrement()) @map("ID")
+  woocommerce_id    BigInt?  @unique @map("woocommerce_id")
+  user_id           BigInt?  @unique @map("user_id")
+  email             String   @db.VarChar(100) @map("email")
+  first_name        String?  @db.VarChar(100) @map("first_name")
+  last_name         String?  @db.VarChar(100) @map("last_name")
+  company           String?  @db.VarChar(100) @map("company")
+  phone             String?  @db.VarChar(20) @map("phone")
+  address_1         String?  @db.VarChar(100) @map("address_1")
+  address_2         String?  @db.VarChar(100) @map("address_2")
+  city              String?  @db.VarChar(100) @map("city")
+  state             String?  @db.VarChar(100) @map("state")
+  postcode          String?  @db.VarChar(20) @map("postcode")
+  country           String?  @db.VarChar(2) @map("country")
+  date_created      DateTime @default(now()) @map("date_created")
+  date_modified     DateTime @updatedAt @map("date_modified")
+  
+  // Relations
+  user User? @relation("CustomerUser", fields: [user_id], references: [id])
+  
+  @@map("wp_customers")
+  @@index([email])
+  @@index([user_id])
+  @@index([woocommerce_id])
+}
+
+// Lens types table - EXACT match to wp_lense_types
+model LensType {
+  id                      Int     @id @default(autoincrement())
+  name                    String? @db.VarChar(100)
+  description             String? @db.Text
+  price                   String? @db.VarChar(100)
+  recommended_thickness   String? @db.VarChar(50) @map("recommended_thickness")
+  created_at              DateTime @default(now())
+  updated_at              DateTime @updatedAt
+
+  @@map("wp_lense_types")
+}
+
+// Lens thickness table - EXACT match to wp_lense_thickness  
+model LensThickness {
+  id                      Int     @id @default(autoincrement())
+  thickness               String? @db.VarChar(50)
+  description             String? @db.Text
+  price                   String? @db.VarChar(100)
+  recommended_coatings    String? @db.VarChar(100) @map("recommended_coatings")
+  created_at              DateTime @default(now())
+  updated_at              DateTime @updatedAt
+
+  @@map("wp_lense_thickness")
+}
+
+// Glass coatings table - EXACT match to wp_glass_coatings
+model GlassCoating {
+  id          Int     @id @default(autoincrement())
+  name        String? @db.VarChar(100)
+  description String? @db.Text
+  price       String? @db.VarChar(100)
+  benefits    String? @db.Text
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@map("wp_glass_coatings")
+}
+
+// Tints table - EXACT match to wp_tints
+model Tint {
+  id          Int     @id @default(autoincrement())
+  name        String? @db.VarChar(100)
+  color       String? @db.VarChar(100)
+  description String? @db.Text
+  price       String? @db.VarChar(100)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@map("wp_tints")
+}
+
+// Coatings tints junction table - EXACT match to wp_coatings_tints
+model CoatingTint {
+  id          Int  @id @default(autoincrement())
+  coating_id  Int?
+  tint_id     Int?
+  order_no    Int? @map("order_no")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@map("wp_coatings_tints")
+}
+
+// Stock log table - EXACT match to wp_stock_log
+model StockLog {
+  ID          BigInt   @id @default(autoincrement()) @map("ID")
+  product_id  BigInt?  @map("product_id")
+  action      String?  @db.VarChar(50)
+  qty         Int      @map("qty")
+  note        String?  @db.Text
+  user_id     BigInt?  @map("user_id")
+  created_at  DateTime @default(now())
+
+  @@map("wp_stock_log")
+  @@index([product_id])
+  @@index([created_at])
+}
+
+// ========================================
+// PLUGIN TABLES
+// ========================================
+
+// Action Scheduler (WooCommerce background processing)
+model ActionSchedulerAction {
+  action_id           BigInt   @id @default(autoincrement()) @map("action_id")
+  hook                String   @db.VarChar(191) @map("hook")
+  status              String   @db.VarChar(20) @map("status")
+  scheduled_date_gmt  DateTime @map("scheduled_date_gmt")
+  scheduled_date_local DateTime @map("scheduled_date_local")
+  priority            Int      @default(10) @map("priority")
+  args                String?  @db.VarChar(191) @map("args")
+  schedule            String?  @db.Text @map("schedule")
+  group_id            BigInt   @default(0) @map("group_id")
+  attempts            Int      @default(0) @map("attempts")
+  last_attempt_gmt    DateTime? @map("last_attempt_gmt")
+  last_attempt_local  DateTime? @map("last_attempt_local")
+  claim_id            BigInt   @default(0) @map("claim_id")
+  extended_args       String?  @db.VarChar(8000) @map("extended_args")
+
+  @@map("wp_actionscheduler_actions")
+  @@index([hook])
+  @@index([status])
+  @@index([scheduled_date_gmt])
+  @@index([args])
+  @@index([group_id])
+  @@index([claim_id])
+}
+
+// ========================================
+// BFF SPECIFIC TABLES
+// ========================================
+
+// Products table optimized for BFF (materialized view of WooCommerce products)
+model Product {
+  id                  Int      @id @default(autoincrement())
+  woocommerce_id      Int      @unique @map("woocommerce_id")
+  name                String   @db.VarChar(255)
+  slug                String   @db.VarChar(255)
+  permalink           String?  @db.VarChar(500)
+  date_created        DateTime @default(now()) @map("date_created")
+  date_modified       DateTime @updatedAt @map("date_modified")
+  type                String   @default("simple") @db.VarChar(50)
+  status              String   @default("publish") @db.VarChar(50)
+  featured            Boolean  @default(false)
+  catalog_visibility  String   @default("visible") @map("catalog_visibility") @db.VarChar(50)
+  description         String?  @db.Text
+  short_description   String?  @map("short_description") @db.Text
+  sku                 String?  @db.VarChar(100)
+  price               Decimal? @db.Decimal(10, 2)
+  regular_price       Decimal? @map("regular_price") @db.Decimal(10, 2)
+  sale_price          Decimal? @map("sale_price") @db.Decimal(10, 2)
+  on_sale             Boolean  @default(false) @map("on_sale")
+  purchasable         Boolean  @default(true)
+  total_sales         Int      @default(0) @map("total_sales")
+  virtual             Boolean  @default(false)
+  downloadable        Boolean  @default(false)
+  download_limit      Int      @default(-1) @map("download_limit")
+  download_expiry     Int      @default(-1) @map("download_expiry")
+  external_url        String?  @map("external_url") @db.VarChar(500)
+  button_text         String?  @map("button_text") @db.VarChar(100)
+  tax_status          String   @default("taxable") @map("tax_status") @db.VarChar(50)
+  tax_class           String?  @map("tax_class") @db.VarChar(100)
+  manage_stock        Boolean  @default(false) @map("manage_stock")
+  stock_quantity      Int?     @map("stock_quantity")
+  stock_status        String   @default("instock") @map("stock_status") @db.VarChar(50)
+  backorders          String   @default("no") @db.VarChar(50)
+  backorders_allowed  Boolean  @default(false) @map("backorders_allowed")
+  backordered         Boolean  @default(false)
+  low_stock_amount    Int?     @map("low_stock_amount")
+  sold_individually   Boolean  @default(false) @map("sold_individually")
+  weight              String?  @db.VarChar(50)
+  dimensions          Json?    // JSON field for dimensions object
+  shipping_required   Boolean  @default(true) @map("shipping_required")
+  shipping_taxable    Boolean  @default(true) @map("shipping_taxable")
+  shipping_class      String?  @map("shipping_class") @db.VarChar(100)
+  shipping_class_id   Int      @default(0) @map("shipping_class_id")
+  reviews_allowed     Boolean  @default(true) @map("reviews_allowed")
+  average_rating      String   @default("0") @map("average_rating") @db.VarChar(10)
+  rating_count        Int      @default(0) @map("rating_count")
+  related_ids         Json?    @map("related_ids") // Array of related product IDs
+  upsell_ids          Json?    @map("upsell_ids") // Array of upsell product IDs
+  cross_sell_ids      Json?    @map("cross_sell_ids") // Array of cross-sell product IDs
+  parent_id           Int      @default(0) @map("parent_id")
+  purchase_note       String?  @map("purchase_note") @db.Text
+  categories          Json?    // Array of category objects
+  tags                Json?    // Array of tag objects
+  images              Json?    // Array of image objects
+  attributes          Json?    // Array of attribute objects
+  default_attributes  Json?    @map("default_attributes") // Default variation attributes
+  variations          Json?    // Array of variation IDs
+  grouped_products    Json?    @map("grouped_products") // Array of grouped product IDs
+  menu_order          Int      @default(0) @map("menu_order")
+  meta_data           Json?    @map("meta_data") // Array of meta data objects
+  created_at          DateTime @default(now()) @map("created_at")
+  updated_at          DateTime @updatedAt @map("updated_at")
+
+  @@map("products")
+  @@index([woocommerce_id])
+  @@index([slug])
+  @@index([sku])
+  @@index([status])
+  @@index([featured])
+  @@index([on_sale])
+  @@index([stock_status])
+  @@index([date_created])
+  @@index([date_modified])
+}
+
+// Categories table optimized for BFF
+model Category {
+  id             Int      @id @default(autoincrement())
+  woocommerce_id Int      @unique @map("woocommerce_id")
+  name           String   @db.VarChar(255)
+  slug           String   @db.VarChar(255)
+  parent         Int      @default(0)
+  description    String?  @db.Text
+  display        String   @default("default") @db.VarChar(50)
+  image          Json?    // Image object
+  menu_order     Int      @default(0) @map("menu_order")
+  count          Int      @default(0)
+  created_at     DateTime @default(now()) @map("created_at")
+  updated_at     DateTime @updatedAt @map("updated_at")
+
+  @@map("categories")
+  @@index([woocommerce_id])
+  @@index([slug])
+  @@index([parent])
+}
+
+// Sync status tracking
+model SyncStatus {
+  id            Int      @id @default(autoincrement())
+  entity_type   String   @map("entity_type") @db.VarChar(50) // products, categories, orders, etc.
+  last_sync_at  DateTime @map("last_sync_at")
+  total_synced  Int      @default(0) @map("total_synced")
+  sync_status   String   @map("sync_status") @db.VarChar(50) // success, failed, in_progress
+  error_message String?  @map("error_message") @db.Text
+  created_at    DateTime @default(now()) @map("created_at")
+  updated_at    DateTime @updatedAt @map("updated_at")
+
+  @@map("sync_status")
+  @@index([entity_type])
+  @@index([last_sync_at])
+}
+
+// Webhook events log
+model WebhookEvent {
+  id            Int      @id @default(autoincrement())
+  event_id      String?  @map("event_id") @db.VarChar(100) // WooCommerce event ID
+  resource      String   @db.VarChar(50) // product, order, customer, etc.
+  event         String   @db.VarChar(50) // created, updated, deleted (alias: eventType)
+  payload       Json     // Full webhook payload
+  processed     Boolean  @default(false)
+  processed_at  DateTime? @map("processed_at")
+  error_message String?  @map("error_message") @db.Text
+  retry_count   Int      @default(0) @map("retry_count")
+  created_at    DateTime @default(now()) @map("created_at") // alias: createdAt
+  updated_at    DateTime @updatedAt @map("updated_at")
+
+  @@map("webhook_events")
+  @@index([resource, event])
+  @@index([processed])
+  @@index([created_at])
+}

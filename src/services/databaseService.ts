@@ -1,0 +1,327 @@
+/**
+ * Database Service - Ultra-High Performance PostgreSQL Integration
+ * 
+ * Features:
+ * - Connection pooling with health monitoring
+ * - Database-agnostic design with Prisma
+ * - Comprehensive error handling and fallbacks
+ * - Performance monitoring and metrics
+ * - Graceful degradation patterns
+ */
+
+import { PrismaClient, Prisma } from '@prisma/client';
+import { envConfig } from '../config/env.js';
+
+// Global Prisma instance with optimized configuration
+let prisma: PrismaClient | null = null;
+
+// Database health status
+let isHealthy = false;
+let lastHealthCheck = 0;
+const HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
+
+// Performance monitoring
+const dbStats = {
+  connectionAttempts: 0,
+  successfulConnections: 0,
+  failedConnections: 0,
+  healthChecks: 0,
+  avgQueryTime: 0,
+  lastError: null as string | null,
+};
+
+/**
+ * Initialize Prisma client with optimized configuration
+ */
+export function initializePrisma(): PrismaClient {
+  if (prisma) {
+    return prisma;
+  }
+
+  console.log('🔧 Initializing Prisma client...');
+  
+  try {
+    prisma = new PrismaClient({
+      log: [
+        { level: 'error', emit: 'event' },
+        { level: 'warn', emit: 'event' },
+      ],
+      datasources: {
+        db: {
+          url: envConfig.database?.DATABASE_URL || process.env.DATABASE_URL,
+        },
+      },
+    });
+
+    // Error event handling
+    (prisma as any).$on('error', (event: any) => {
+      console.error('Prisma error:', event);
+      dbStats.lastError = event.message;
+      isHealthy = false;
+    });
+
+    // Warning event handling
+    (prisma as any).$on('warn', (event: any) => {
+      console.warn('Prisma warning:', event);
+    });
+
+    dbStats.connectionAttempts++;
+    console.log('✅ Prisma client initialized successfully');
+    
+    return prisma;
+  } catch (error) {
+    dbStats.failedConnections++;
+    dbStats.lastError = error instanceof Error ? error.message : 'Unknown error';
+    console.error('❌ Failed to initialize Prisma client:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get the Prisma client instance
+ */
+export function getPrismaClient(): PrismaClient {
+  if (!prisma) {
+    return initializePrisma();
+  }
+  return prisma;
+}
+
+/**
+ * Check database health with caching
+ */
+export async function checkDatabaseHealth(forceCheck = false): Promise<boolean> {
+  const now = Date.now();
+  
+  // Use cached result if recent and not forced
+  if (!forceCheck && (now - lastHealthCheck) < HEALTH_CHECK_INTERVAL && isHealthy) {
+    return isHealthy;
+  }
+
+  try {
+    const client = getPrismaClient();
+    const startTime = Date.now();
+    
+    // Simple health check query
+    await client.$queryRaw`SELECT 1`;
+    
+    const queryTime = Date.now() - startTime;
+    dbStats.avgQueryTime = (dbStats.avgQueryTime + queryTime) / 2;
+    dbStats.healthChecks++;
+    dbStats.successfulConnections++;
+    
+    isHealthy = true;
+    lastHealthCheck = now;
+    
+    console.log(`✅ Database health check passed (${queryTime}ms)`);
+    return true;
+  } catch (error) {
+    dbStats.failedConnections++;
+    dbStats.lastError = error instanceof Error ? error.message : 'Health check failed';
+    isHealthy = false;
+    lastHealthCheck = now;
+    
+    console.error('❌ Database health check failed:', error);
+    return false;
+  }
+}
+
+/**
+ * Execute database operation with error handling and fallback
+ */
+export async function executeWithFallback<T>(
+  operation: () => Promise<T>,
+  fallback?: () => Promise<T>
+): Promise<T | null> {
+  try {
+    // Check database health first
+    const healthy = await checkDatabaseHealth();
+    if (!healthy && fallback) {
+      console.warn('Database unhealthy, using fallback');
+      return await fallback();
+    }
+
+    const startTime = Date.now();
+    const result = await operation();
+    const queryTime = Date.now() - startTime;
+    
+    // Update performance stats
+    dbStats.avgQueryTime = (dbStats.avgQueryTime + queryTime) / 2;
+    
+    return result;
+  } catch (error) {
+    console.error('Database operation failed:', error);
+    dbStats.lastError = error instanceof Error ? error.message : 'Unknown error';
+    
+    // Try fallback if available
+    if (fallback) {
+      try {
+        console.log('Attempting fallback operation...');
+        return await fallback();
+      } catch (fallbackError) {
+        console.error('Fallback operation also failed:', fallbackError);
+      }
+    }
+    
+    return null;
+  }
+}
+
+/**
+ * Get database performance statistics
+ */
+export function getDatabaseStats() {
+  return {
+    ...dbStats,
+    isHealthy,
+    lastHealthCheck: new Date(lastHealthCheck).toISOString(),
+    healthCheckAge: Date.now() - lastHealthCheck,
+  };
+}
+
+/**
+ * Close database connection gracefully
+ */
+export async function closeDatabaseConnection(): Promise<void> {
+  if (prisma) {
+    try {
+      await prisma.$disconnect();
+      console.log('✅ Database connection closed gracefully');
+    } catch (error) {
+      console.error('❌ Error closing database connection:', error);
+    } finally {
+      prisma = null;
+      isHealthy = false;
+    }
+  }
+}
+
+/**
+ * Database transaction wrapper with error handling
+ */
+export async function withTransaction<T>(
+  operation: (tx: any) => Promise<T>
+): Promise<T | null> {
+  const client = getPrismaClient();
+  
+  try {
+    return await client.$transaction(async (tx: any) => {
+      return await operation(tx);
+    });
+  } catch (error) {
+    console.error('Transaction failed:', error);
+    dbStats.lastError = error instanceof Error ? error.message : 'Transaction failed';
+    return null;
+  }
+}
+
+/**
+ * Initialize database service and run initial health check
+ */
+export async function initializeDatabaseService(): Promise<boolean> {
+  try {
+    console.log('🚀 Initializing database service...');
+    
+    // Initialize Prisma client
+    initializePrisma();
+    
+    // Run initial health check
+    const healthy = await checkDatabaseHealth(true);
+    
+    if (healthy) {
+      console.log('✅ Database service initialized successfully');
+      // Start periodic health checks
+      setInterval(() => {
+        checkDatabaseHealth().catch(console.error);
+      }, HEALTH_CHECK_INTERVAL);
+    } else {
+      console.warn('⚠️ Database service initialized but database is not healthy');
+    }
+    
+    return healthy;
+  } catch (error) {
+    console.error('❌ Failed to initialize database service:', error);
+    return false;
+  }
+}
+
+/**
+ * Get a single product by ID with optimized query
+ */
+export async function getProduct(id: number): Promise<any | null> {
+  return executeWithFallback(async () => {
+    const client = getPrismaClient();
+    return await client.product.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        woocommerce_id: true,
+        name: true,
+        description: true,
+        price: true,
+        sale_price: true,
+        stock_quantity: true,
+        status: true,
+        categories: true,
+        images: true,
+        meta_data: true,
+        created_at: true,
+        updated_at: true
+      }
+    });
+  });
+}
+
+/**
+ * Get popular products for cache warmup
+ */
+export async function getPopularProducts(limit = 100): Promise<any[]> {
+  const result = await executeWithFallback(async () => {
+    const client = getPrismaClient();
+    return await client.product.findMany({
+      take: limit,
+      where: {
+        status: 'publish'
+      },
+      orderBy: [
+        { featured: 'desc' },
+        { total_sales: 'desc' },
+        { updated_at: 'desc' }
+      ],
+      select: {
+        id: true,
+        woocommerce_id: true,
+        name: true,
+        sku: true,
+        price: true
+      }
+    });
+  }, async () => {
+    // Fallback: return some mock popular products
+    console.warn('Using fallback popular products');
+    const mockProducts = Array.from({ length: Math.min(limit, 20) }, (_, i) => ({
+      id: i + 1,
+      woocommerce_id: i + 1,
+      name: `Popular Product ${i + 1}`,
+      sku: `POPULAR-${i + 1}`,
+      price: null
+    }));
+    return mockProducts;
+  });
+  return result || [];
+}
+
+// Export Prisma client for direct access when needed
+export { prisma };
+export default {
+  initializePrisma,
+  getPrismaClient,
+  checkDatabaseHealth,
+  executeWithFallback,
+  getDatabaseStats,
+  closeDatabaseConnection,
+  withTransaction,
+  initializeDatabaseService,
+  getProduct,
+  getPopularProducts,
+};
