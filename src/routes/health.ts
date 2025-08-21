@@ -40,24 +40,6 @@ export function createHealthRoutes(cacheService: CacheService): Hono {
   const health = new Hono();
 
   /**
-   * GET /health/version - Deployment tracking endpoint
-   */
-  health.get('/version', async (c) => {
-    const buildTime = new Date().toISOString();
-    const commitHash = process.env.COMMIT_SHA || 'unknown';
-    
-    return c.json({
-      version: '1.0.0',
-      buildTime,
-      commitHash,
-      nodeVersion: process.version,
-      environment: process.env.NODE_ENV || 'development',
-      timestamp: Date.now(),
-      deployed: buildTime
-    });
-  });
-
-  /**
    * GET /health/live - Enhanced liveness probe with ultra-fast caching
    */
   health.get('/live', async (c) => {
