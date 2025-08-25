@@ -38,11 +38,14 @@ import { logger } from './utils/logger.js'; // Centralized structured logger (JS
   (console as any)._original = original; // escape hatch
 })();
 import { CacheService, cacheMemoryGauge } from './services/cacheService.js';
+import { startTracing, shutdownTracing } from './observability/tracing.js';
 import { createGlobalRateLimiter } from './middleware/rateLimiter.js';
 import databaseService from './services/databaseService.js';
 
 // Validate critical environment variables at startup
 // ---------------------------------------------------------------------------
+// Start tracing (no-op if disabled)
+startTracing();
 // 1. Early critical environment validation
 //    Fail-fast only on variables required to boot the HTTP server safely.
 //    (Non‑critical integrations like WooCommerce could be made optional later.)
@@ -477,12 +480,15 @@ const gracefulShutdown = async (signal: string) => {
     if (serverInstance) {
       serverInstance.close(() => {
         logger.info('HTTP server closed');
+        // Shutdown tracing exporter
+        shutdownTracing().finally(() => {
         process.exit(0);
+        });
       });
     } else {
       // If server hasn't been initialized yet, just exit
       logger.info('Server was not yet initialized');
-      process.exit(0);
+      shutdownTracing().finally(() => process.exit(0));
     }
     
     // Force exit after timeout to prevent hanging
