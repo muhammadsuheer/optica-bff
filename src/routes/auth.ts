@@ -13,6 +13,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { sign, verify } from 'hono/jwt';
+import { Counter, Gauge } from 'prom-client';
 import { Redis } from 'ioredis';
 import { validateRequest } from '../middleware/validateRequest.js';
 import { CacheService } from '../services/cacheService.js';
@@ -66,6 +67,8 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
   const redis = new Redis(envConfig.redis.REDIS_URL);
   const REFRESH_REVOKE_SET = 'auth:refresh:revoked';
   const REFRESH_TTL = envConfig.security.JWT_REFRESH_TTL; // seconds
+  const revokedCounter = new Counter({ name: 'auth_refresh_tokens_revoked_total', help: 'Total revoked refresh tokens' });
+  const activeSessionsGauge = new Gauge({ name: 'auth_active_sessions', help: 'Approx active sessions (size of access token cache)' });
 
   /**
    * POST /auth/login - Customer authentication with caching
@@ -129,11 +132,12 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
         const userCacheKey = `user:profile:${authResult.user!.id}`;
         await cacheService.set(userCacheKey, authResult.user!, 1800); // 30 minutes
 
-        // Cache token for ultra-fast validation
+  // Cache token for ultra-fast validation
         tokenCache.set(accessToken, {
           user: authResult.user!,
           expires: Date.now() + TOKEN_CACHE_TTL
         });
+  activeSessionsGauge.set(tokenCache.size);
 
         // Clear failed attempts
         await cacheService.delete(cacheKey);
@@ -424,7 +428,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
       }, envConfig.security.JWT_SECRET);
 
   // Rotate refresh token: revoke old, issue new
-  if (payload.jti && typeof payload.jti === 'string') await redis.sadd(REFRESH_REVOKE_SET, payload.jti);
+  if (payload.jti && typeof payload.jti === 'string') { await redis.sadd(REFRESH_REVOKE_SET, payload.jti); revokedCounter.inc(); }
   const newRefreshJti = crypto.randomUUID();
   await redis.expire(REFRESH_REVOKE_SET, REFRESH_TTL); // ensure set has TTL
   const newRefreshToken = await sign({ userId: userResult.user!.id, type: 'refresh', jti: newRefreshJti, exp: Math.floor(Date.now()/1000)+REFRESH_TTL }, envConfig.security.JWT_SECRET);
@@ -435,7 +439,8 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
         expires: Date.now() + TOKEN_CACHE_TTL
       });
 
-      const responseTime = Date.now() - startTime;
+  activeSessionsGauge.set(tokenCache.size);
+  const responseTime = Date.now() - startTime;
       authStats.refresh.avgTime = (authStats.refresh.avgTime + responseTime) / 2;
 
       c.header('X-Response-Time', `${responseTime}ms`);

@@ -34,6 +34,19 @@ export class CacheService {
       commandTimeout: 2000, // Fast command timeout
       enableReadyCheck: false, // Skip ready check for faster startup
     });
+    // Pub/Sub for cross-replica invalidation
+    const sub = new Redis(envConfig.redis.REDIS_URL);
+    sub.subscribe('cache.invalidate', () => {});
+    sub.on('message', (channel, message) => {
+      if (channel === 'cache.invalidate') {
+        try {
+          const { pattern } = JSON.parse(message);
+          if (pattern) {
+            this.deletePattern(pattern).catch(()=>{});
+          }
+        } catch {/* ignore */}
+      }
+    });
 
     // L1 Cache: Ultra-hot data with zero-allocation access patterns
     this.l1Cache = new LRUCache<string, CacheEntry>({
@@ -206,11 +219,13 @@ export class CacheService {
         }
       }
 
-      // Clear Redis entries matching pattern
+  // Clear Redis entries matching pattern
       const keys = await this.redis.keys(namespacedPattern);
       if (keys.length > 0) {
         await this.redis.del(...keys);
       }
+  // Publish invalidation for other replicas
+  try { await this.redis.publish('cache.invalidate', JSON.stringify({ pattern: namespacedPattern })); } catch {/* ignore */}
     } catch (error) {
       console.error(`Cache deletePattern error for pattern ${pattern}:`, error);
     }
