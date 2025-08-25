@@ -4,6 +4,7 @@
  */
 
 import type { ApiProduct } from '../types/index.js';
+import { LRUCache } from 'lru-cache';
 import { env } from '../config/env.js';
 
 interface WooCommerceConfig {
@@ -22,7 +23,12 @@ interface RequestOptions {
 class WooCommerceService {
   private readonly config: WooCommerceConfig;
   private readonly baseUrl: string;
-  private readonly requestCache = new Map<string, { data: any; expires: number }>();
+  // Bounded in‑memory cache (ultra-fast) – avoids unbounded Map growth
+  private readonly requestCache = new LRUCache<string, { data: ApiProduct | ApiProduct[] | any; expires: number }>({
+    max: 500,            // hard cap entries
+    ttl: 1000 * 60 * 15, // default safety TTL 15m (per-entry overrides still applied)
+  });
+  // Track in‑flight fetches (dedupe). We'll self-prune when large.
   private readonly fetchPool: Map<string, Promise<any>> = new Map();
 
   constructor(config: WooCommerceConfig) {
@@ -39,7 +45,7 @@ class WooCommerceService {
     // Memory cache hit - 0.1ms
     const cached = this.requestCache.get(cacheKey);
     if (cached && cached.expires > Date.now()) {
-      return cached.data;
+      return cached.data as ApiProduct;
     }
 
     // Deduplicate concurrent requests
@@ -47,18 +53,16 @@ class WooCommerceService {
       return this.fetchPool.get(cacheKey);
     }
 
-    const fetchPromise = this.fetchProductInternal(id, options);
+  const fetchPromise = this.fetchProductInternal(id, options);
     this.fetchPool.set(cacheKey, fetchPromise);
 
     try {
-      const product = await fetchPromise;
+  const product = await fetchPromise;
+  if (!this.isApiProduct(product)) return null;
       
       // Cache for 5 minutes by default
       const cacheTimeout = options.cacheTimeout || 300000;
-      this.requestCache.set(cacheKey, {
-        data: product,
-        expires: Date.now() + cacheTimeout
-      });
+  this.requestCache.set(cacheKey, { data: product, expires: Date.now() + cacheTimeout });
 
       return product;
     } finally {
@@ -82,26 +86,26 @@ class WooCommerceService {
     // Memory cache hit
     const cached = this.requestCache.get(cacheKey);
     if (cached && cached.expires > Date.now()) {
-      return cached.data;
+      return cached.data as ApiProduct[];
     }
 
     if (this.fetchPool.has(cacheKey)) {
       return this.fetchPool.get(cacheKey);
     }
 
-    const fetchPromise = this.fetchProductsInternal(params);
+  const fetchPromise = this.fetchProductsInternal(params);
     this.fetchPool.set(cacheKey, fetchPromise);
 
     try {
       const products = await fetchPromise;
-      
+      const filtered = Array.isArray(products) ? products.filter(p => this.isApiProduct(p)) as ApiProduct[] : [];
       // Cache for 2 minutes for list queries
-      this.requestCache.set(cacheKey, {
-        data: products,
-        expires: Date.now() + 120000
-      });
-
-      return products;
+      this.requestCache.set(cacheKey, { data: filtered, expires: Date.now() + 120000 });
+      // Prune fetchPool aggressively if it grows too large
+      if (this.fetchPool.size > 300) {
+        for (const k of this.fetchPool.keys()) { this.fetchPool.delete(k); if (this.fetchPool.size <= 150) break; }
+      }
+      return filtered;
     } finally {
       this.fetchPool.delete(cacheKey);
     }
@@ -117,7 +121,7 @@ class WooCommerceService {
     
     const cached = this.requestCache.get(cacheKey);
     if (cached && cached.expires > Date.now()) {
-      return cached.data;
+      return cached.data as ApiProduct[];
     }
 
     const params = {
@@ -166,8 +170,8 @@ class WooCommerceService {
   private async fetchProductInternal(id: number, options: RequestOptions): Promise<ApiProduct | null> {
     try {
       const url = this.buildUrl(`products/${id}`);
-      const product = await this.makeRequest(url, options);
-      return product;
+  const product = await this.makeRequest(url, options);
+  return this.isApiProduct(product) ? product : null;
     } catch (error) {
       console.error(`Failed to fetch product ${id}:`, error);
       return null;
@@ -180,8 +184,9 @@ class WooCommerceService {
   private async fetchProductsInternal(params: any): Promise<ApiProduct[]> {
     try {
       const url = this.buildUrl('products', params);
-      const products = await this.makeRequest(url);
-      return Array.isArray(products) ? products : [];
+  const products = await this.makeRequest(url);
+  if (!Array.isArray(products)) return [];
+  return products.filter(p => this.isApiProduct(p));
     } catch (error) {
       console.error('Failed to fetch products:', error);
       return [];
@@ -268,6 +273,12 @@ class WooCommerceService {
     );
     
     await Promise.allSettled(promises);
+  }
+
+  // Runtime shape guard for external data
+  private isApiProduct(obj: any): obj is ApiProduct {
+    if (!obj || typeof obj !== 'object') return false;
+    return typeof obj.id === 'number' && typeof obj.name === 'string' && typeof obj.status === 'string';
   }
 }
 

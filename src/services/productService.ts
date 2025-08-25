@@ -43,7 +43,7 @@ const performanceStats = {
 
 // SWR state management
 const refreshQueue = new Set<string>();
-const isRefreshing = new Map<string, Promise<any>>();
+const isRefreshing: Map<string, Promise<void>> = new Map();
 
 export class ProductService {
   private cache: CacheService;
@@ -161,28 +161,25 @@ export class ProductService {
    * Schedule background refresh for SWR pattern
    */
   private scheduleBackgroundRefresh(cacheKey: string, params: any): void {
-    if (isRefreshing.has(cacheKey)) {
-      return;
-    }
-
-    refreshQueue.add(cacheKey);
-    
-    // Use setTimeout to avoid blocking the current request
-    setTimeout(async () => {
-      try {
-        refreshQueue.delete(cacheKey);
-        performanceStats.backgroundRefreshes++;
-        
-        const refreshPromise = this.fetchProductsFresh(cacheKey, params, Date.now());
-        isRefreshing.set(cacheKey, refreshPromise);
-        
-        await refreshPromise;
-        isRefreshing.delete(cacheKey);
-      } catch (error) {
-        console.error('Background refresh error:', error);
-        isRefreshing.delete(cacheKey);
-      }
-    }, 10); // 10ms delay to avoid blocking
+      if (isRefreshing.has(cacheKey)) return;
+      refreshQueue.add(cacheKey);
+      setTimeout(() => {
+        const work = async () => {
+          try {
+            refreshQueue.delete(cacheKey);
+            performanceStats.backgroundRefreshes++;
+            const refreshPromise = this.fetchProductsFresh(cacheKey, params, Date.now());
+            // We only care completion side effects, not return value here
+            isRefreshing.set(cacheKey, refreshPromise.then(() => undefined));
+            await refreshPromise;
+          } catch (err) {
+            console.error('Background refresh error:', err);
+          } finally {
+            isRefreshing.delete(cacheKey);
+          }
+        };
+        work().catch(e => console.error('Background refresh unhandled:', e));
+      }, 10);
   }
 
   /**

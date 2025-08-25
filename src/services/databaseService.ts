@@ -249,10 +249,27 @@ export async function initializeDatabaseService(): Promise<boolean> {
 /**
  * Get a single product by ID with optimized query
  */
-export async function getProduct(id: number): Promise<any | null> {
+// Minimal representation of product row used by BFF (numbers coerced from Prisma Decimal)
+export interface DbProductLite {
+  id: number;
+  woocommerce_id: number | null;
+  name: string;
+  description: string | null;
+  price: number | null;      // coerced
+  sale_price: number | null; // coerced
+  stock_quantity: number | null;
+  status: string;
+  categories: any; // TODO: refine categories relation type
+  images: any;     // TODO: refine image relation type
+  meta_data: any;  // TODO: refine meta_data structure
+  created_at: Date;
+  updated_at: Date;
+}
+
+export async function getProduct(id: number): Promise<DbProductLite | null> {
   return executeWithFallback(async () => {
     const client = getPrismaClient();
-    return await client.product.findUnique({
+    const row = await client.product.findUnique({
       where: { id },
       select: {
         id: true,
@@ -270,37 +287,40 @@ export async function getProduct(id: number): Promise<any | null> {
         updated_at: true
       }
     });
+    if (!row) return null;
+    return {
+      ...row,
+      price: row.price == null ? null : Number(row.price),
+      sale_price: row.sale_price == null ? null : Number(row.sale_price),
+    } as DbProductLite;
   });
 }
 
 /**
  * Get popular products for cache warmup
  */
-export async function getPopularProducts(limit = 100): Promise<any[]> {
+export interface DbPopularProduct { id: number; woocommerce_id: number | null; name: string; sku: string | null; price: number | null; }
+
+export async function getPopularProducts(limit = 100): Promise<DbPopularProduct[]> {
   const result = await executeWithFallback(async () => {
     const client = getPrismaClient();
-    return await client.product.findMany({
+    const rows = await client.product.findMany({
       take: limit,
-      where: {
-        status: 'publish'
-      },
-      orderBy: [
-        { featured: 'desc' },
-        { total_sales: 'desc' },
-        { updated_at: 'desc' }
-      ],
-      select: {
-        id: true,
-        woocommerce_id: true,
-        name: true,
-        sku: true,
-        price: true
-      }
+      where: { status: 'publish' },
+      orderBy: [ { featured: 'desc' }, { total_sales: 'desc' }, { updated_at: 'desc' } ],
+      select: { id: true, woocommerce_id: true, name: true, sku: true, price: true }
     });
+    return rows.map(r => ({
+      id: r.id,
+      woocommerce_id: r.woocommerce_id ?? null,
+      name: r.name,
+      sku: r.sku,
+      price: r.price == null ? null : Number(r.price)
+    })) as DbPopularProduct[];
   }, async () => {
     // Fallback: return some mock popular products
     console.warn('Using fallback popular products');
-    const mockProducts = Array.from({ length: Math.min(limit, 20) }, (_, i) => ({
+  const mockProducts: DbPopularProduct[] = Array.from({ length: Math.min(limit, 20) }, (_, i) => ({
       id: i + 1,
       woocommerce_id: i + 1,
       name: `Popular Product ${i + 1}`,
