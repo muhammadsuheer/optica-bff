@@ -10,6 +10,7 @@
  */
 
 import { GraphQLClient } from 'graphql-request';
+import { logger } from '../utils/logger.js';
 import { Agent } from 'undici';
 import { createHash } from 'crypto';
 import { Redis } from 'ioredis';
@@ -377,9 +378,9 @@ export class WPGraphQLClient {
         totalCount: response.products.nodes.length,
       };
     } catch (error) {
-      graphqlStats.errorCount++;
-      console.error('WPGraphQL products fetch error:', error);
-      throw new Error('Failed to fetch products from WordPress');
+  graphqlStats.errorCount++;
+  logger.error('wpGraphql getProducts failed', error as Error, { params: { first, after, orderBy, order, search, categories } });
+  throw new Error('Failed to fetch products from WordPress');
     }
   }
 
@@ -405,8 +406,8 @@ export class WPGraphQLClient {
 
       return response.product;
     } catch (error) {
-      console.error(`WPGraphQL product fetch error for ID ${id}:`, error);
-      throw new Error(`Failed to fetch product ${id} from WordPress`);
+  logger.error('wpGraphql getProduct failed', error as Error, { id });
+  throw new Error(`Failed to fetch product ${id} from WordPress`);
     }
   }
 
@@ -420,10 +421,10 @@ export class WPGraphQLClient {
       
       if (keys.length > 0) {
         await this.redis.del(...keys);
-        console.log(`Invalidated ${keys.length} cache entries`);
+        logger.info('wpGraphql cache invalidated', { count: keys.length, pattern: pattern || '*' });
       }
     } catch (error) {
-      console.warn('Cache invalidation error:', error);
+      logger.warn('wpGraphql cache invalidation error', { error: (error as any)?.message });
     }
   }
 

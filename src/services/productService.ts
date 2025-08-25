@@ -44,6 +44,7 @@ const performanceStats = {
 // SWR state management
 const refreshQueue = new Set<string>();
 const isRefreshing: Map<string, Promise<void>> = new Map();
+const MAX_REFRESH_TRACKED = 300;
 
 export class ProductService {
   private cache: CacheService;
@@ -162,6 +163,15 @@ export class ProductService {
    */
   private scheduleBackgroundRefresh(cacheKey: string, params: any): void {
       if (isRefreshing.has(cacheKey)) return;
+      // Bound map size to avoid unbounded growth under bursty keys
+      if (isRefreshing.size > MAX_REFRESH_TRACKED) {
+        const excess = isRefreshing.size - MAX_REFRESH_TRACKED;
+        let i = 0;
+        for (const key of isRefreshing.keys()) {
+          if (i++ >= excess) break;
+          isRefreshing.delete(key);
+        }
+      }
       refreshQueue.add(cacheKey);
       setTimeout(() => {
         const work = async () => {

@@ -213,6 +213,16 @@ export interface ApiProduct {
   meta_data: any[];
 }
 
+/** WooCommerce category (REST / Store API) */
+export interface WooCategory {
+  id: number;
+  name: string;
+  slug: string;
+  parent?: number;
+  description?: string;
+  count?: number;
+}
+
 /**
  * API response wrapper
  */

@@ -11,6 +11,8 @@
  */
 
 import { Agent, request } from 'undici';
+import { logger } from '../utils/logger.js';
+import type { WooCategory } from '../types/index.js';
 import { envConfig } from '../config/env.js';
 
 // Performance monitoring
@@ -126,13 +128,13 @@ export class WooStoreApiClient {
       requestOptions.body = JSON.stringify(body);
     }
 
-    let lastError: Error;
+  let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         storeApiStats.requestCount++;
         
-        const response = await request(url, requestOptions);
+  const response = await request(url, requestOptions);
         
         if (response.statusCode >= 400) {
           throw new Error(`Store API error: ${response.statusCode}`);
@@ -148,6 +150,7 @@ export class WooStoreApiClient {
 
       } catch (error) {
         lastError = error as Error;
+        logger.warn('wooStoreApi request attempt failed', { endpoint: endpoint, attempt, error: (lastError as any)?.message });
         storeApiStats.errorCount++;
         
         if (attempt < retries) {
@@ -157,7 +160,8 @@ export class WooStoreApiClient {
       }
     }
 
-    throw lastError!;
+  logger.error('wooStoreApi request failed', lastError || new Error('Unknown error'), { endpoint, url });
+  throw lastError || new Error('Request failed');
   }
 
   /**
@@ -184,7 +188,7 @@ export class WooStoreApiClient {
     if (params.order) queryParams.order = params.order;
     if (params.orderby) queryParams.orderby = params.orderby;
 
-    const response = await this.makeRequest<any>('/wc/store/v1/products', {
+  const response = await this.makeRequest<any>('/wc/store/v1/products', {
       method: 'GET',
       params: queryParams,
     });
@@ -206,6 +210,7 @@ export class WooStoreApiClient {
       if ((error as any).message?.includes('404')) {
         return null;
       }
+      logger.error('wooStoreApi getProduct failed', error as Error, { id });
       throw error;
     }
   }
@@ -234,7 +239,7 @@ export class WooStoreApiClient {
       
       return cart;
     } catch (error) {
-      console.error('Cart fetch error:', error);
+      logger.error('wooStoreApi cart fetch error', error as Error, { cacheKey });
       throw error;
     }
   }

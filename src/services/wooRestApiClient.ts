@@ -1,4 +1,5 @@
 import { Agent, request } from 'undici';
+import { logger } from '../utils/logger.js';
 import { createHmac } from 'crypto';
 import { envConfig } from '../config/env.js';
 import type { WooStockInfo } from '../types/index.js';
@@ -202,7 +203,7 @@ export class WooRestApiClient {
       }
 
       // Handle 5xx errors with smart retry
-      if (response.statusCode >= 500 && retryCount < 2) {
+  if (response.statusCode >= 500 && retryCount < 2) {
         this.handleFailure();
         await this.exponentialBackoff(retryCount);
         return this.makeRequest<T>(endpoint, params, retryCount + 1);
@@ -210,9 +211,11 @@ export class WooRestApiClient {
 
       // Handle other errors
       this.handleFailure();
-      throw new Error(`WooCommerce API error: ${response.statusCode}`);
+  const err = new Error(`WooCommerce API error: ${response.statusCode}`);
+  logger.warn('wooRestApi non-retryable status', { endpoint, status: response.statusCode });
+  throw err;
 
-    } catch (error) {
+  } catch (error) {
       clearTimeout(timeout);
 
       // Handle circuit breaker
@@ -224,7 +227,8 @@ export class WooRestApiClient {
         return this.makeRequest<T>(endpoint, params, retryCount + 1);
       }
 
-      throw error;
+  logger.error('wooRestApi request failed', error as Error, { endpoint, retry: retryCount });
+  throw error;
     }
   }
 
@@ -290,7 +294,7 @@ export class WooRestApiClient {
           _fields: 'id,stock_status,stock_quantity,manage_stock,backorders,backorders_allowed,backordered',
         });
       } catch (error) {
-        console.warn(`Failed to fetch stock for chunk ${chunk.slice(0, 3).join(',')}...`, error);
+  logger.warn('wooRestApi stock chunk failed', { sample: chunk.slice(0,3), error: (error as any)?.message });
         return []; // Return empty array for failed chunks
       }
     });
@@ -340,7 +344,7 @@ export class WooRestApiClient {
 
       return null;
     } catch (error) {
-      console.error(`WooCommerce stock fetch error for product ${productId}:`, error);
+  logger.error('wooRestApi stock fetch error', error as Error, { productId });
       throw new Error(`Failed to fetch stock for product ${productId}`);
     }
   }

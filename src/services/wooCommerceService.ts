@@ -3,7 +3,7 @@
  * Optimized for <1ms response times with aggressive caching
  */
 
-import type { ApiProduct } from '../types/index.js';
+import type { ApiProduct, WooCategory } from '../types/index.js';
 import { LRUCache } from 'lru-cache';
 import { env } from '../config/env.js';
 
@@ -144,24 +144,21 @@ class WooCommerceService {
   /**
    * Get categories with caching
    */
-  async getCategories(params: { parent?: number; per_page?: number } = {}): Promise<any[]> {
+  async getCategories(params: { parent?: number; per_page?: number } = {}): Promise<WooCategory[]> {
     const cacheKey = `categories_${JSON.stringify(params)}`;
     
     const cached = this.requestCache.get(cacheKey);
     if (cached && cached.expires > Date.now()) {
-      return cached.data;
+      return cached.data as WooCategory[];
     }
 
-    const url = this.buildUrl('products/categories', params);
-    const categories = await this.makeRequest(url);
+  const url = this.buildUrl('products/categories', params);
+  const categories = await this.makeRequest(url);
+  const safe: WooCategory[] = Array.isArray(categories) ? categories.filter(c => c && typeof c.id === 'number' && typeof c.name === 'string' && typeof c.slug === 'string') : [];
     
     // Cache categories for 10 minutes
-    this.requestCache.set(cacheKey, {
-      data: categories,
-      expires: Date.now() + 600000
-    });
-
-    return categories;
+  this.requestCache.set(cacheKey, { data: safe, expires: Date.now() + 600000 });
+  return safe;
   }
 
   /**
