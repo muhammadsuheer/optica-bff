@@ -217,7 +217,7 @@ export function getWooCommerceService() {
     if (!wooCommerceInstance) {
         // Create default instance if none exists
         wooCommerceInstance = new WooCommerceService({
-            url: process.env.WOOCOMMERCE_URL || 'http://localhost:8080',
+            url: env.WP_BASE_URL,
             consumerKey: process.env.WOOCOMMERCE_CONSUMER_KEY || 'demo',
             consumerSecret: process.env.WOOCOMMERCE_CONSUMER_SECRET || 'demo',
             version: 'v3'

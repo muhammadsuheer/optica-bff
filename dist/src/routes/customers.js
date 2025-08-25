@@ -753,7 +753,10 @@ async function fetchCustomerOrders(customerId, page, perPage) {
         payment_method: 'stripe',
         payment_method_title: 'Credit Card',
         transaction_id: `tx_${customerId}_${i + 1}`,
-        customer_ip_address: '127.0.0.1',
+        customer_ip_address: c.req.header('CF-Connecting-IP') ||
+            c.req.header('X-Forwarded-For') ||
+            c.req.header('X-Real-IP') ||
+            '0.0.0.0',
         customer_user_agent: 'MockAgent/1.0',
         created_via: 'rest-api',
         customer_note: '',

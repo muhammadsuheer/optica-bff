@@ -11,6 +11,9 @@
 # deps
 node_modules/
 
+# build output (should be generated in CI/CD)
+dist/
+
 # env
 .env
 .env.production

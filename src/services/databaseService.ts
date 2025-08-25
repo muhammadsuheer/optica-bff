@@ -10,6 +10,7 @@
  */
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { logger } from '../utils/logger.js';
 import { envConfig } from '../config/env.js';
 
 // Global Prisma instance with optimized configuration
@@ -38,7 +39,7 @@ export function initializePrisma(): PrismaClient {
     return prisma;
   }
 
-  console.log('🔧 Initializing Prisma client...');
+  logger.debug('Initializing Prisma client...');
   
   try {
     prisma = new PrismaClient({

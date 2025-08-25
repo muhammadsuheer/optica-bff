@@ -9,6 +9,7 @@
  * - Graceful degradation patterns
  */
 import { PrismaClient, Prisma } from '@prisma/client';
+import { logger } from '../utils/logger.js';
 import { envConfig } from '../config/env.js';
 // Global Prisma instance with optimized configuration
 let prisma = null;
@@ -32,7 +33,7 @@ export function initializePrisma() {
     if (prisma) {
         return prisma;
     }
-    console.log('🔧 Initializing Prisma client...');
+    logger.debug('Initializing Prisma client...');
     try {
         prisma = new PrismaClient({
             log: [

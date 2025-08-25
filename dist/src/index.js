@@ -13,6 +13,26 @@ import { env } from './config/env.js';
 import { CacheService } from './services/cacheService.js';
 import { createGlobalRateLimiter } from './middleware/rateLimiter.js';
 import databaseService from './services/databaseService.js';
+// Validate critical environment variables at startup
+const validateEnvironment = () => {
+    const required = [
+        'DATABASE_URL',
+        'WP_GRAPHQL_ENDPOINT',
+        'WP_BASE_URL',
+        'WOO_CONSUMER_KEY',
+        'WOO_CONSUMER_SECRET',
+        'WOO_STORE_API_URL'
+    ];
+    const missing = required.filter(key => !process.env[key]);
+    if (missing.length > 0) {
+        console.error('❌ Missing required environment variables:', missing);
+        console.error('💡 Make sure to set these variables in Coolify environment settings');
+        process.exit(1);
+    }
+    console.log('✅ Environment validation passed');
+};
+// Validate environment before starting
+validateEnvironment();
 // Import routes
 import { createHealthRoutes } from './routes/health.js';
 import { createProductRoutes } from './routes/products.js';
@@ -69,9 +89,28 @@ const initializeServices = async () => {
         const [cacheService, databaseHealthy] = await Promise.all([
             new Promise((resolve) => {
                 const cache = new CacheService();
+                // Add timeout for Redis connection (5 seconds)
+                const timeout = setTimeout(() => {
+                    console.log('⚠️ Redis connection timeout, using in-memory cache');
+                    resolve(cache);
+                }, 5000);
                 // Wait for Redis connection before resolving
-                cache['redis'].once('ready', () => resolve(cache));
-                cache['redis'].once('error', () => resolve(cache)); // Graceful fallback
+                cache['redis'].once('ready', () => {
+                    clearTimeout(timeout);
+                    console.log('✅ Redis connected successfully');
+                    resolve(cache);
+                });
+                cache['redis'].once('error', (error) => {
+                    clearTimeout(timeout);
+                    console.log('⚠️ Redis connection failed, using in-memory cache:', error.message);
+                    resolve(cache); // Graceful fallback
+                });
+                // If Redis URL is not provided, resolve immediately
+                if (!env.REDIS_URL || env.REDIS_URL === 'redis://localhost:6379') {
+                    clearTimeout(timeout);
+                    console.log('⚠️ No Redis URL provided, using in-memory cache');
+                    resolve(cache);
+                }
             }),
             initializeDatabaseService() // Initialize database service
         ]);

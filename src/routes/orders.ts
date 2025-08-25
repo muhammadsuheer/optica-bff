@@ -144,7 +144,10 @@ export function createOrderRoutes(cacheService: CacheService): Hono {
         payment_method: orderData.payment_method,
         payment_method_title: orderData.payment_method_title,
         transaction_id: '',
-        customer_ip_address: c.req.header('CF-Connecting-IP') || '127.0.0.1',
+        customer_ip_address: c.req.header('CF-Connecting-IP') || 
+                            c.req.header('X-Forwarded-For') || 
+                            c.req.header('X-Real-IP') || 
+                            '0.0.0.0',
         customer_user_agent: c.req.header('User-Agent') || '',
         created_via: 'rest-api',
         customer_note: '',

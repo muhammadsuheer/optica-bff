@@ -11,9 +11,40 @@ import { register, Counter, Histogram, Gauge, collectDefaultMetrics } from 'prom
 
 // Import configuration and services
 import { env } from './config/env.js';
+import { logger } from './utils/logger.js'; // Centralized structured logger (JSON in production)
 import { CacheService } from './services/cacheService.js';
 import { createGlobalRateLimiter } from './middleware/rateLimiter.js';
 import databaseService from './services/databaseService.js';
+
+// Validate critical environment variables at startup
+// ---------------------------------------------------------------------------
+// 1. Early critical environment validation
+//    Fail-fast only on variables required to boot the HTTP server safely.
+//    (Non‑critical integrations like WooCommerce could be made optional later.)
+// ---------------------------------------------------------------------------
+const validateEnvironment = () => {
+  const required = [
+    'DATABASE_URL',
+    'WP_GRAPHQL_ENDPOINT', 
+    'WP_BASE_URL',
+    'WOO_CONSUMER_KEY',
+    'WOO_CONSUMER_SECRET',
+    'WOO_STORE_API_URL'
+  ];
+  
+  const missing = required.filter(key => !process.env[key]);
+  
+  if (missing.length > 0) {
+    logger.error('Missing required environment variables', { missing });
+    logger.warn('Add these variables in your platform environment settings (e.g. Coolify) before redeploy');
+    process.exit(1);
+  }
+  
+  logger.info('Environment validation passed');
+};
+
+// Validate environment before starting
+validateEnvironment();
 
 // Import routes
 import { createHealthRoutes } from './routes/health.js';
@@ -68,8 +99,12 @@ const cacheHitRate = new Counter({
 collectDefaultMetrics({ prefix: 'optica_bff_' });
 
 // Initialize all services in parallel for faster startup
+// ---------------------------------------------------------------------------
+// 2. Parallel service initialization (DB + Cache + Rate Limiter)
+//    Adds defensive timeouts so the process does not hang waiting on Redis.
+// ---------------------------------------------------------------------------
 const initializeServices = async () => {
-  console.log('🚀 Initializing services in parallel...');
+  logger.info('Initializing core services in parallel');
   const startTime = performance.now();
   
   try {
@@ -80,9 +115,32 @@ const initializeServices = async () => {
     const [cacheService, databaseHealthy] = await Promise.all([
       new Promise<CacheService>((resolve) => {
         const cache = new CacheService();
+        
+        // Add timeout for Redis connection (5 seconds)
+        const timeout = setTimeout(() => {
+      logger.warn('Redis connection timeout – falling back to in‑memory cache');
+          resolve(cache);
+        }, 5000);
+        
         // Wait for Redis connection before resolving
-        cache['redis'].once('ready', () => resolve(cache));
-        cache['redis'].once('error', () => resolve(cache)); // Graceful fallback
+        cache['redis'].once('ready', () => {
+          clearTimeout(timeout);
+      logger.info('Redis connected successfully');
+          resolve(cache);
+        });
+        
+        cache['redis'].once('error', (error) => {
+          clearTimeout(timeout);
+      logger.warn('Redis connection failed – using in‑memory cache', { error: error.message });
+          resolve(cache); // Graceful fallback
+        });
+        
+        // If Redis URL is not provided, resolve immediately
+        if (!env.REDIS_URL || env.REDIS_URL === 'redis://localhost:6379') {
+          clearTimeout(timeout);
+      logger.warn('No Redis URL provided – using in‑memory cache');
+          resolve(cache);
+        }
       }),
       initializeDatabaseService() // Initialize database service
     ]);
@@ -91,12 +149,11 @@ const initializeServices = async () => {
     const globalRateLimiter = createGlobalRateLimiter(cacheService);
     
     const initTime = performance.now() - startTime;
-    console.log(`✅ Services initialized in ${initTime.toFixed(2)}ms`);
-    console.log(`📊 Database status: ${databaseHealthy ? 'Connected' : 'Fallback mode'}`);
+    logger.info('Services initialized', { duration_ms: +initTime.toFixed(2), databaseHealthy });
     
     return { cacheService, globalRateLimiter, databaseHealthy };
   } catch (error) {
-    console.error('❌ Service initialization failed:', error);
+    logger.error('Service initialization failed', error as Error);
     throw error;
   }
 };
@@ -108,6 +165,7 @@ const servicesPromise = initializeServices();
 const app = new Hono();
 
 // Fast path middleware: Request ID generation as FIRST middleware (critical for tracing)
+// Middleware: assigns request ID + collects Prometheus metrics for every request.
 app.use('*', async (c, next) => {
   const requestId = randomUUID();
   c.header('X-Request-ID', requestId);
@@ -125,8 +183,9 @@ app.use('*', async (c, next) => {
     const statusCode = c.res.status.toString();
     
     // Record metrics
-    httpRequestDuration.observe({ method, route, status_code: statusCode }, duration);
-    httpRequestsTotal.inc({ method, route, status_code: statusCode });
+  // NOTE: Use path as route label (Hono does not expose matched pattern here)
+  httpRequestDuration.observe({ method, route, status_code: statusCode }, duration);
+  httpRequestsTotal.inc({ method, route, status_code: statusCode });
     activeConnections.dec();
   }
 });
@@ -169,10 +228,10 @@ const setupRoutes = async () => {
   
   // Initialize database service
   try {
-    await databaseService.initializeDatabaseService();
-    console.log('✅ Database service initialized successfully');
+  await databaseService.initializeDatabaseService();
+  logger.info('Database service initialized successfully');
   } catch (error) {
-    console.error('❌ Database service initialization failed:', error);
+  logger.error('Database service initialization failed', error as Error);
     // Continue without database - graceful degradation
   }
 
@@ -253,7 +312,7 @@ app.get('/metrics', async (c) => {
     c.header('Content-Type', register.contentType);
     return c.text(await register.metrics());
   } catch (error) {
-    console.error('Metrics collection error:', error);
+  logger.error('Metrics collection error', error as Error);
     return c.text('Error collecting metrics', 500);
   }
 });
@@ -263,10 +322,11 @@ app.onError((error, c) => {
   const requestId = c.req.header('X-Request-ID') || 'unknown';
   
   // Log error with request ID
-  console.error(`[${requestId}] Global error:`, {
-    message: error.message,
-    stack: env.NODE_ENV === 'development' ? error.stack : undefined,
-  });
+  logger.error('Global error', {
+    requestId,
+    message: (error as Error).message,
+    stack: env.NODE_ENV === 'development' ? (error as Error).stack : undefined,
+  } as any);
 
   if (error instanceof HTTPException) {
     return c.json({
@@ -305,7 +365,7 @@ app.notFound((c) => {
 
 // Enhanced graceful shutdown with async hooks and connection cleanup
 const gracefulShutdown = async (signal: string) => {
-  console.log(`\n🛑 Received ${signal}. Starting graceful shutdown...`);
+  logger.warn('Received shutdown signal', { signal });
   
   try {
     // Get services from promise (if they were initialized)
@@ -314,33 +374,33 @@ const gracefulShutdown = async (signal: string) => {
     if (services) {
       // Close cache service and Redis connections
       await services.cacheService.close();
-      console.log('✅ Cache and Redis connections closed');
+      logger.info('Cache and Redis connections closed');
     }
     
     // Close shared HTTP agent
     globalHttpAgent.close();
-    console.log('✅ HTTP agent closed');
+    logger.info('HTTP agent closed');
     
     // Close server (wait for it to be initialized first)
     if (serverInstance) {
       serverInstance.close(() => {
-        console.log('✅ HTTP server closed');
+        logger.info('HTTP server closed');
         process.exit(0);
       });
     } else {
       // If server hasn't been initialized yet, just exit
-      console.log('✅ Server was not yet initialized');
+      logger.info('Server was not yet initialized');
       process.exit(0);
     }
     
     // Force exit after timeout to prevent hanging
     setTimeout(() => {
-      console.error('❌ Forced shutdown after 10s timeout');
+      logger.error('Forced shutdown after timeout');
       process.exit(1);
     }, 10000);
     
   } catch (error) {
-    console.error('❌ Error during shutdown:', error);
+    logger.error('Error during shutdown', error as Error);
     process.exit(1);
   }
 };
@@ -349,11 +409,11 @@ const gracefulShutdown = async (signal: string) => {
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
+  logger.error('Uncaught Exception', error);
   gracefulShutdown('uncaughtException');
 });
-process.on('unhandledRejection', (reason) => {
-  console.error('❌ Unhandled Rejection:', reason);
+process.on('unhandledRejection', (reason: any) => {
+  logger.error('Unhandled Rejection', reason instanceof Error ? reason : { reason });
   gracefulShutdown('unhandledRejection');
 });
 
@@ -364,25 +424,27 @@ const startServer = async () => {
   try {
     // Initialize routes after services are ready
     await setupRoutes();
-    console.log('✅ Routes initialized');
+    logger.info('Routes initialized');
     
     serverInstance = serve({
       fetch: app.fetch,
       port: env.PORT,
       hostname: env.HOST,
     }, (info) => {
-      console.log(`🚀 optica BFF server running on http://${info.address}:${info.port}`);
-      console.log(`📊 Environment: ${env.NODE_ENV}`);
-      console.log(`💾 Redis: ${env.REDIS_URL}`);
-      console.log(`📱 WP GraphQL: ${env.WP_GRAPHQL_ENDPOINT}`);
-      console.log(`🛒 WooCommerce: ${env.WP_BASE_URL}`);
-      console.log(`🔧 HTTP Keep-Alive: enabled (20 max connections)`);
-      console.log(`⚡ Performance optimizations: Parallel initialization, Keep-alive agents, Security-first middleware`);
+      logger.info('Server listening', {
+        address: info.address,
+        port: info.port,
+        nodeEnv: env.NODE_ENV,
+        redis: env.REDIS_URL,
+        wpGraphql: env.WP_GRAPHQL_ENDPOINT,
+        wooBase: env.WP_BASE_URL,
+        keepAlive: true
+      });
     });
     
     return serverInstance;
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    logger.error('Failed to start server', error as Error);
     process.exit(1);
   }
 };
@@ -390,3 +452,11 @@ const startServer = async () => {
 const server = startServer();
 
 export default app;
+
+// ---------------------------------------------------------------------------
+// EARLY LIGHTWEIGHT LIVENESS ENDPOINT
+// Exposed immediately so container health checks succeed before full
+// service initialization (DB/Redis) completes. Does *not* assert downstream
+// dependencies; those are covered by /health/* endpoints after setup.
+// ---------------------------------------------------------------------------
+app.get('/healthz', (c) => c.json({ status: 'up', ts: Date.now() }));

@@ -21,7 +21,9 @@ import { PreAllocatedErrors as Errors } from '../types/index.js';
 const customerRegistrationSchema = z.object({
   email: z.string().email().max(254),
   first_name: z.string().min(1).max(50),
-  last_name: z.string().min(1).max(50),
+       customer_ip_address: c?.req.header('CF-Connecting-IP') ||
+                        c?.req.header('X-Forwarded-For') ||
+                        c?.req.header('X-Real-IP') ||st_name: z.string().min(1).max(50),
   username: z.string().min(3).max(50).optional(),
   password: z.string().min(8).max(128),
 }).strict();
@@ -865,7 +867,7 @@ async function fetchCustomerOrders(customerId: number, page: number, perPage: nu
     payment_method: 'stripe',
     payment_method_title: 'Credit Card',
     transaction_id: `tx_${customerId}_${i + 1}`,
-    customer_ip_address: '127.0.0.1',
+    customer_ip_address: '127.0.0.1', // Mock IP for customer orders
     customer_user_agent: 'MockAgent/1.0',
     created_via: 'rest-api',
     customer_note: '',

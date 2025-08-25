@@ -20,7 +20,7 @@ syncRoutes.get('/status', async (c) => {
       }
     });
   } catch (error) {
-    logger.error('Failed to get sync status:', error);
+    logger.error('Failed to get sync status:', error as Error);
     return c.json({
       status: 'error',
       message: 'Failed to get sync status'
