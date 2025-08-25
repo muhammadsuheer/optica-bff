@@ -52,6 +52,7 @@ const configSchemas: Record<ConfigCategory, Record<string, any>> = {
     DB_NAME: str({ default: 'optica_bff' }),
     DB_USER: str({ default: 'postgres' }),
     DB_PASSWORD: str(),
+  PGPOOLSIZE: num({ default: 10 }),
   },
   
   [ConfigCategory.SECURITY]: {

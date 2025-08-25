@@ -50,6 +50,7 @@ REQUEST_TIMEOUT_MS=10000
 | CACHE_TTL_PRODUCTS | No | 60 | No | Seconds - product list cache |
 | CACHE_TTL_PRODUCT_DETAIL | No | 60 | No | Seconds - product detail cache |
 | REQUEST_TIMEOUT_MS | No | 10000 | No | External request timeout ms |
+| PGPOOLSIZE | No | 10 | No | Prisma client pool size (logical concurrency) |
 
 Degraded mode: Any missing WP/Woo variables sets `INTEGRATION_WP_DISABLED=1` internally; `/wordpress` and `/woocommerce` routes are not mounted, `/ready` reports wordpress=disabled.
 
@@ -147,6 +148,39 @@ Migrations:
 - Readiness endpoint: `/ready` checks DB (and optional WP base reachability). Use for load balancer target health.
 
 ### Sample Coolify (Nixpacks) Configuration Snippet
+## Scaling & Performance (Stage 4)
+
+### PostgreSQL Connection Pool (PGPOOLSIZE)
+Recommended starting values:
+- Small (Shared 1 vCPU / 512MB): 5
+- Medium (2–4 vCPU / 2–4GB): 10–15
+- Large (8+ vCPU / 8GB+): 20 (raise only if DB has headroom)
+
+Tune downward if you observe connection saturation or high idle counts. Each replica should keep total active connections under DB max (minus admin and maintenance connections).
+
+### Cache Metrics
+Prometheus counters exposed:
+- cache_hits_total{tier="l1|l2|redis"}
+- cache_misses_total
+- cache_evictions_total{tier="l1|l2"}
+- cache_memory_sizes{tier="l1|l2"} (gauge)
+Interpretation: High l1/l2 hit ratio (>80%) indicates effective in-memory hot set. Rising evictions may mean increase max or reduce TTL.
+
+### Rate Limiter Metrics
+- rate_limiter_rejections_total{category}
+- rate_limiter_errors_total{category}
+Use rejection growth to adjust RATE_LIMIT_MAX_REQUESTS / window or scale horizontally.
+
+### Horizontal vs Vertical Scaling
+Stateless design: All state externalized (DB, Redis). Scale horizontally by adding replicas; ensure:
+- Shared Redis for global rate limiting & cache coherence.
+- Sticky sessions NOT required (JWT stateless auth).
+- Health/liveness: /healthz; readiness: /ready.
+
+Vertical scaling improves single-instance throughput until connection or CPU saturation; then add replicas.
+
+### Degraded Mode
+If WP/Woo vars missing the service runs core product/database endpoints only. Metrics still exposed; readiness reports wordpress=disabled.
 ```
 Service: optica-bff
 Build Pack: Nixpacks (Node)

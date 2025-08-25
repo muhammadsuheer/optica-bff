@@ -3,6 +3,8 @@ import { CacheService } from '../services/cacheService.js';
 import { envConfig } from '../config/env.js';
 import type { ApiResponse } from '../types/index.js';
 import { createHash } from 'crypto';
+import { Counter } from 'prom-client';
+import { logger } from '../utils/logger.js';
 
 /**
  * Performance-optimized global rate limiter configuration
@@ -130,7 +132,8 @@ export class GlobalRateLimiter {
           // Rate limit exceeded - use pre-allocated response
           c.header('X-RateLimit-Remaining', '0');
           c.header('X-RateLimit-Reset', new Date(Date.now() + config.window).toISOString());
-          
+          rateLimitRejects.inc({ category });
+          logger.warn('rate_limit_exceeded', { category, identifier, limit: config.requests });
           return c.json(rateLimitResponse, 429);
         }
 
@@ -140,6 +143,8 @@ export class GlobalRateLimiter {
         await next();
       } catch (error) {
         // Fail open - allow request on error for maximum availability
+        rateLimitErrors.inc({ category });
+        logger.error('rate_limiter_error', error as Error, { category });
         await next();
       }
     };
@@ -353,3 +358,15 @@ export const rateLimitMiddleware = {
   health: (cacheService: CacheService) => createGlobalRateLimiter(cacheService).middleware('health'),
   search: (cacheService: CacheService) => createGlobalRateLimiter(cacheService).middleware('search'),
 };
+
+// Prometheus metrics for rate limiter
+export const rateLimitRejects = new Counter({
+  name: 'rate_limiter_rejections_total',
+  help: 'Total rate limiter rejections by category',
+  labelNames: ['category'] as const,
+});
+export const rateLimitErrors = new Counter({
+  name: 'rate_limiter_errors_total',
+  help: 'Rate limiter internal errors by category',
+  labelNames: ['category'] as const,
+});

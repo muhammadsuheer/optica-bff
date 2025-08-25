@@ -1,6 +1,7 @@
 import { Redis } from 'ioredis';
 import { LRUCache } from 'lru-cache';
 import { envConfig } from '../config/env.js';
+import { Counter, Gauge } from 'prom-client';
 import { CacheKey } from '../utils/cacheKey.js';
 import type { CacheEntry } from '../types/index.js';
 
@@ -41,6 +42,7 @@ export class CacheService {
       allowStale: false,
       updateAgeOnGet: true,
       updateAgeOnHas: true, // Update age on has() calls too
+      dispose: () => cacheEvictions.inc({ tier: 'l1' }),
     });
 
     // L2 Cache: Hot data with larger capacity and stale tolerance
@@ -50,6 +52,7 @@ export class CacheService {
       allowStale: true, // Allow stale data for better performance
       updateAgeOnGet: true,
       updateAgeOnHas: true,
+      dispose: () => cacheEvictions.inc({ tier: 'l2' }),
     });
 
     // Optimized Redis event handlers
@@ -75,6 +78,7 @@ export class CacheService {
       // L1: Check ultra-hot cache first (sub-ms access)
       const l1Entry = this.l1Cache.get(namespacedKey);
       if (l1Entry && this.isEntryValid(l1Entry)) {
+        cacheHits.inc({ tier: 'l1' });
         return l1Entry.data as T;
       }
 
@@ -83,25 +87,27 @@ export class CacheService {
       if (l2Entry && this.isEntryValid(l2Entry)) {
         // Promote to L1 if accessed frequently
         this.l1Cache.set(namespacedKey, l2Entry);
+        cacheHits.inc({ tier: 'l2' });
         return l2Entry.data as T;
       }
 
       // L3: Check Redis cache
-      const redisValue = await this.redis.get(namespacedKey);
+  const redisValue = await this.redis.get(namespacedKey);
       if (redisValue) {
         const entry: CacheEntry<T> = JSON.parse(redisValue);
         
         if (this.isEntryValid(entry)) {
           // Populate both L1 and L2 caches
-          this.l2Cache.set(namespacedKey, entry);
-          this.l1Cache.set(namespacedKey, entry);
+      this.l2Cache.set(namespacedKey, entry);
+      this.l1Cache.set(namespacedKey, entry);
+      cacheHits.inc({ tier: 'redis' });
           return entry.data;
         } else {
           // Remove expired entry
           await this.redis.del(namespacedKey);
         }
       }
-
+    cacheMisses.inc();
       return null;
     } catch (error) {
       console.error(`Cache get error for key ${key}:`, error);
@@ -398,4 +404,33 @@ export class CacheService {
     
     return new RegExp(`^${regexPattern}$`).test(str);
   }
+
+  /** Metrics snapshot for /metrics enrichment */
+  getMemoryCacheStats() {
+    return {
+      l1Size: this.l1Cache.size,
+      l2Size: this.l2Cache.size,
+    };
+  }
 }
+
+// Prometheus metrics (module-level singletons)
+export const cacheHits = new Counter({
+  name: 'cache_hits_total',
+  help: 'Cache hits by tier',
+  labelNames: ['tier'] as const,
+});
+export const cacheMisses = new Counter({
+  name: 'cache_misses_total',
+  help: 'Cache misses total',
+});
+export const cacheEvictions = new Counter({
+  name: 'cache_evictions_total',
+  help: 'LRU cache evictions',
+  labelNames: ['tier'] as const,
+});
+export const cacheMemoryGauge = new Gauge({
+  name: 'cache_memory_sizes',
+  help: 'In-memory LRU cache sizes',
+  labelNames: ['tier'] as const,
+});
