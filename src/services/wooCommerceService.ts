@@ -4,6 +4,7 @@
  */
 
 import type { ApiProduct } from '../types/index.js';
+import { env } from '../config/env.js';
 
 interface WooCommerceConfig {
   url: string;
@@ -283,10 +284,11 @@ export function createWooCommerceService(config: WooCommerceConfig): WooCommerce
 export function getWooCommerceService(): WooCommerceService {
   if (!wooCommerceInstance) {
     // Create default instance if none exists
+    // Fallback instance (degraded mode) uses dummy credentials; real usage requires env vars
     wooCommerceInstance = new WooCommerceService({
-      url: env.WP_BASE_URL,
-      consumerKey: process.env.WOOCOMMERCE_CONSUMER_KEY || 'demo',
-      consumerSecret: process.env.WOOCOMMERCE_CONSUMER_SECRET || 'demo',
+      url: env.WP_BASE_URL || process.env.WP_BASE_URL || 'http://localhost',
+      consumerKey: process.env.WOO_CONSUMER_KEY || process.env.WOOCOMMERCE_CONSUMER_KEY || 'demo',
+      consumerSecret: process.env.WOO_CONSUMER_SECRET || process.env.WOOCOMMERCE_CONSUMER_SECRET || 'demo',
       version: 'v3'
     });
   }
