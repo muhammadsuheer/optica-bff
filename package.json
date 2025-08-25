@@ -9,6 +9,8 @@
   "dev": "tsx watch src/index.ts",
   "build": "prisma generate && tsc",
   "start": "prisma migrate deploy && node dist/src/index.js",
+  "start:nomigrate": "node dist/src/index.js",
+  "migrate": "prisma migrate deploy",
   "postinstall": "prisma generate",
   "lint": "eslint src/**/*.ts",
   "lint:fix": "eslint src/**/*.ts --fix",

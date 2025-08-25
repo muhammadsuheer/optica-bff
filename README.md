@@ -105,15 +105,26 @@ ab -n 1000 -c 10 http://localhost:3000/health
 ```
 
 ## Deploy
-Build & run container:
+Build & run (local):
 ```
 npm ci
 npm run build
-node dist/src/index.js
-# or Docker
-docker build -t optica-bff .
-docker run -p 3000:3000 --env-file .env optica-bff
+npm start          # runs prisma migrate deploy then launches
 ```
+Docker:
+```
+docker build -t optica-bff .
+docker run --env-file .env -p 3000:3000 optica-bff
+```
+
+Coolify / Nixpacks:
+- Build command: npm run build
+- Start command: npm start
+- Healthcheck endpoint: /healthz (fast liveness). Add readiness (optional) /metrics or implement /ready if you need downstream checks.
+- Ensure DATABASE_URL and JWT_SECRET set. If WordPress vars omitted, degraded mode disables WP/Woo routes automatically.
+
+Migrations:
+- `start` script already executes `prisma migrate deploy` (idempotent). If platform handles migrations separately, use `start:nomigrate`.
 
 ## 🚨 Monitoring & Alerts
 
