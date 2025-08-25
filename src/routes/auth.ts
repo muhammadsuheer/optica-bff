@@ -13,6 +13,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { sign, verify } from 'hono/jwt';
+import { Redis } from 'ioredis';
 import { validateRequest } from '../middleware/validateRequest.js';
 import { CacheService } from '../services/cacheService.js';
 import { WooRestApiClient } from '../services/wooRestApiClient.js';
@@ -62,6 +63,9 @@ const TOKEN_CACHE_TTL = 300000; // 5 minutes
 export function createAuthRoutes(cacheService: CacheService): Hono {
   const auth = new Hono();
   const wooClient = new WooRestApiClient();
+  const redis = new Redis(envConfig.redis.REDIS_URL);
+  const REFRESH_REVOKE_SET = 'auth:refresh:revoked';
+  const REFRESH_TTL = envConfig.security.JWT_REFRESH_TTL; // seconds
 
   /**
    * POST /auth/login - Customer authentication with caching
@@ -115,8 +119,9 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
         };
 
         const accessToken = await sign(tokenPayload, envConfig.security.JWT_SECRET);
+        const refreshTokenJti = crypto.randomUUID();
         const refreshToken = await sign(
-          { userId: authResult.user!.id, type: 'refresh' },
+          { userId: authResult.user!.id, type: 'refresh', jti: refreshTokenJti, exp: Math.floor(Date.now()/1000)+REFRESH_TTL },
           envConfig.security.JWT_SECRET
         );
 
@@ -372,7 +377,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
 
     try {
       const body = await c.req.json();
-      const { refresh_token } = body;
+  const { refresh_token } = body;
 
       if (!refresh_token) {
         return c.json({
@@ -396,6 +401,11 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
         }, 401);
       }
 
+      // Check revocation
+  if (payload.jti && typeof payload.jti === 'string' && await redis.sismember(REFRESH_REVOKE_SET, payload.jti)) {
+        return c.json({ success: false, error: { code: 'TOKEN_REVOKED', message: 'Refresh token revoked' } }, 401);
+      }
+
       // Get user data
       const userResult = await fetchWordPressUser(payload.userId as number);
       if (!userResult.success) {
@@ -406,12 +416,18 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
       }
 
       // Generate new access token
-      const newAccessToken = await sign({
+  const newAccessToken = await sign({
         userId: userResult.user!.id,
         email: userResult.user!.email,
         roles: userResult.user!.roles,
         exp: Math.floor(Date.now() / 1000) + 3600, // 1 hour
       }, envConfig.security.JWT_SECRET);
+
+  // Rotate refresh token: revoke old, issue new
+  if (payload.jti && typeof payload.jti === 'string') await redis.sadd(REFRESH_REVOKE_SET, payload.jti);
+  const newRefreshJti = crypto.randomUUID();
+  await redis.expire(REFRESH_REVOKE_SET, REFRESH_TTL); // ensure set has TTL
+  const newRefreshToken = await sign({ userId: userResult.user!.id, type: 'refresh', jti: newRefreshJti, exp: Math.floor(Date.now()/1000)+REFRESH_TTL }, envConfig.security.JWT_SECRET);
 
       // Cache new token
       tokenCache.set(newAccessToken, {
@@ -428,6 +444,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
         success: true,
         data: {
           access_token: newAccessToken,
+          refresh_token: newRefreshToken,
           expires_in: 3600,
         }
       });

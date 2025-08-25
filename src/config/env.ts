@@ -60,6 +60,7 @@ const configSchemas: Record<ConfigCategory, Record<string, any>> = {
     CORS_ORIGIN: str({ default: '*' }),
   JWT_ACCESS_TTL: num({ default: 3600 }),
   JWT_REFRESH_TTL: num({ default: 2592000 }),
+  ADMIN_API_KEYS: str({ default: '' }),
   },
   
   [ConfigCategory.PERFORMANCE]: {

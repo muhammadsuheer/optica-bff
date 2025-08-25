@@ -39,6 +39,7 @@ import { logger } from './utils/logger.js'; // Centralized structured logger (JS
 })();
 import { CacheService, cacheMemoryGauge } from './services/cacheService.js';
 import { startTracing, shutdownTracing } from './observability/tracing.js';
+import { requireApiKey } from './middleware/apiKey.js';
 import { createGlobalRateLimiter } from './middleware/rateLimiter.js';
 import databaseService from './services/databaseService.js';
 
@@ -338,6 +339,20 @@ app.get('/', (c) => {
     },
     timestamp: new Date().toISOString(),
   });
+});
+// Admin cache invalidation endpoint (API key protected)
+app.post('/admin/cache/invalidate', requireApiKey(), async (c) => {
+  try {
+    const body = await c.req.json();
+    const pattern = body?.pattern;
+    if (!pattern) return c.json({ success:false, error:{ code:'MISSING_PATTERN', message:'pattern required' }},400);
+    const { cacheService } = await servicesPromise;
+    await cacheService.deletePattern(pattern);
+    return c.json({ success:true, data:{ pattern } });
+  } catch (e:any) {
+    logger.error('Admin cache invalidate failed', e);
+    return c.json({ success:false, error:{ code:'INVALID_REQUEST', message:'Failed to invalidate' }},400);
+  }
 });
 
 // Additional Stage 5 metrics: per-route latency & cache size gauges
