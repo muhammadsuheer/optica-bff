@@ -341,6 +341,41 @@ app.get('/', (c) => {
 app.get('/metrics', async (c) => {
   try {
     c.header('Content-Type', register.contentType);
+// Readiness endpoint: verifies core dependencies (DB) and optional WP/Woo if enabled
+app.get('/ready', async (c) => {
+  const checks: Record<string, string> = {};
+  // Database check
+  try {
+    const client = databaseService.getPrismaClient();
+    await client.$queryRaw`SELECT 1`;
+    checks.database = 'ok';
+  } catch (e) {
+    checks.database = 'fail';
+  }
+  // Optional WP/Woo readiness (only if not degraded)
+  if (process.env.INTEGRATION_WP_DISABLED !== '1') {
+    checks.wordpress = 'pending';
+    try {
+      // Lightweight endpoint assumption: environment base URL reachable
+      // Use fetch HEAD for base URL if available
+      if (env.WP_BASE_URL) {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 3000);
+        await fetch(env.WP_BASE_URL, { method: 'HEAD', signal: controller.signal }).catch(() => {});
+        clearTimeout(t);
+        checks.wordpress = 'ok';
+      } else {
+        checks.wordpress = 'skipped';
+      }
+    } catch {
+      checks.wordpress = 'fail';
+    }
+  } else {
+    checks.wordpress = 'disabled';
+  }
+  const allOk = Object.values(checks).every(v => v === 'ok' || v === 'disabled' || v === 'skipped');
+  return c.json({ status: allOk ? 'ready' : 'degraded', checks });
+});
     return c.text(await register.metrics());
   } catch (error) {
   logger.error('Metrics collection error', error as Error);

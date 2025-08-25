@@ -6,16 +6,16 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
-  "dev": "tsx watch src/index.ts",
-  "build": "prisma generate && tsc",
-  "start": "prisma migrate deploy && node dist/src/index.js",
-  "start:nomigrate": "node dist/src/index.js",
-  "migrate": "prisma migrate deploy",
-  "postinstall": "prisma generate",
-  "lint": "eslint src/**/*.ts",
-  "lint:fix": "eslint src/**/*.ts --fix",
-  "format": "prettier --write src/**/*.ts",
-  "test": "jest"
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "npm run migrate && node dist/index.js",
+    "start:nomigrate": "node dist/index.js",
+    "migrate": "prisma migrate deploy",
+    "postinstall": "prisma generate",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "format": "prettier --write src/**/*.ts",
+    "test": "jest"
   },
   "dependencies": {
     "@hono/node-server": "^1.18.2",

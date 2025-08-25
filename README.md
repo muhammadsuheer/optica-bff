@@ -33,6 +33,26 @@ CACHE_TTL_PRODUCT_DETAIL=60
 REQUEST_TIMEOUT_MS=10000
 ```
 
+### Environment Variable Matrix
+| Variable | Required | Default | Triggers Degraded Mode if Missing | Notes |
+|----------|----------|---------|------------------------------------|-------|
+| DATABASE_URL | Yes | – | Yes (fatal) | PostgreSQL connection string |
+| JWT_SECRET | Yes | – | No (startup fails) | Auth & signing |
+| WP_GRAPHQL_ENDPOINT | No | – | Yes (disables WP/Woo routes) | WordPress GraphQL endpoint |
+| WP_BASE_URL | No | – | Yes | Used for readiness ping & route enablement |
+| WOO_CONSUMER_KEY | No | – | Yes | WooCommerce REST auth |
+| WOO_CONSUMER_SECRET | No | – | Yes | WooCommerce REST auth |
+| WOO_STORE_API_URL | No | – | Yes | Store API base for storefront data |
+| REDIS_URL | No | redis://localhost:6379 | No | Improves shared caching; memory cache still works |
+| CORS_ORIGIN | No | * | No | Comma-separated list or * |
+| RATE_LIMIT_WINDOW_MS | No | 60000 | No | Sliding window size |
+| RATE_LIMIT_MAX_REQUESTS | No | 100 | No | Requests per window |
+| CACHE_TTL_PRODUCTS | No | 60 | No | Seconds - product list cache |
+| CACHE_TTL_PRODUCT_DETAIL | No | 60 | No | Seconds - product detail cache |
+| REQUEST_TIMEOUT_MS | No | 10000 | No | External request timeout ms |
+
+Degraded mode: Any missing WP/Woo variables sets `INTEGRATION_WP_DISABLED=1` internally; `/wordpress` and `/woocommerce` routes are not mounted, `/ready` reports wordpress=disabled.
+
 ## Minimal Project Structure
 ```
 src/            # Application code
@@ -124,6 +144,26 @@ Coolify / Nixpacks:
 - Ensure DATABASE_URL and JWT_SECRET set. If WordPress vars omitted, degraded mode disables WP/Woo routes automatically.
 
 Migrations:
+- Readiness endpoint: `/ready` checks DB (and optional WP base reachability). Use for load balancer target health.
+
+### Sample Coolify (Nixpacks) Configuration Snippet
+```
+Service: optica-bff
+Build Pack: Nixpacks (Node)
+Build Command: npm run build
+Start Command: npm start
+Port: 3000
+Healthcheck: /healthz (liveness), optional /ready (readiness)
+Environment Variables:
+	DATABASE_URL=postgres://user:pass@host:5432/db
+	JWT_SECRET=change-me
+	# Optional WP/Woo
+	WP_GRAPHQL_ENDPOINT=https://example.com/graphql
+	WP_BASE_URL=https://example.com
+	WOO_CONSUMER_KEY=ck_xxx
+	WOO_CONSUMER_SECRET=cs_xxx
+	WOO_STORE_API_URL=https://example.com/wp-json/wc/store/v1
+```
 - `start` script already executes `prisma migrate deploy` (idempotent). If platform handles migrations separately, use `start:nomigrate`.
 
 ## 🚨 Monitoring & Alerts
