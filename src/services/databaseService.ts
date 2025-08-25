@@ -204,10 +204,17 @@ export async function withTransaction<T>(
   operation: (tx: any) => Promise<T>
 ): Promise<T | null> {
   const client = getPrismaClient();
+  const slowThresholdMs = Number(process.env.DB_SLOW_MS || 200);
   
   try {
     return await client.$transaction(async (tx: any) => {
-      return await operation(tx);
+      const start = performance.now();
+      const result = await operation(tx);
+      const dur = performance.now() - start;
+      if (dur > slowThresholdMs) {
+        logger.warn('slow_transaction', { duration_ms: Math.round(dur), threshold_ms: slowThresholdMs });
+      }
+      return result;
     });
   } catch (error) {
     console.error('Transaction failed:', error);

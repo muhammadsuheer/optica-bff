@@ -37,7 +37,7 @@ import { logger } from './utils/logger.js'; // Centralized structured logger (JS
   });
   (console as any)._original = original; // escape hatch
 })();
-import { CacheService } from './services/cacheService.js';
+import { CacheService, cacheMemoryGauge } from './services/cacheService.js';
 import { createGlobalRateLimiter } from './middleware/rateLimiter.js';
 import databaseService from './services/databaseService.js';
 
@@ -337,10 +337,36 @@ app.get('/', (c) => {
   });
 });
 
+// Additional Stage 5 metrics: per-route latency & cache size gauges
+const routeLatency = new Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP request latency by method and route',
+  labelNames: ['method','route','status'] as const,
+  buckets: [0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2,5]
+});
+
+// Wrap app.use to record latency (lightweight global middleware)
+app.use('*', async (c, next) => {
+  const start = performance.now();
+  await next();
+  try {
+    const dur = (performance.now() - start) / 1000;
+    const path = c.req.path.replace(/\d+/g, ':id');
+    routeLatency.labels(c.req.method, path, String(c.res.status || 200)).observe(dur);
+  } catch {/* ignore metrics errors */}
+});
+
 // Prometheus metrics endpoint
 app.get('/metrics', async (c) => {
   try {
     c.header('Content-Type', register.contentType);
+    // Update dynamic gauges (cache sizes) if cache service initialized
+    try {
+      const { cacheService } = await servicesPromise;
+      const stats = cacheService.getMemoryCacheStats();
+      cacheMemoryGauge.labels('l1').set(stats.l1Size);
+      cacheMemoryGauge.labels('l2').set(stats.l2Size);
+    } catch {/* ignore */}
 // Readiness endpoint: verifies core dependencies (DB) and optional WP/Woo if enabled
 app.get('/ready', async (c) => {
   const checks: Record<string, string> = {};
