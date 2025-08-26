@@ -11,6 +11,7 @@
  */
 
 import { Hono } from 'hono';
+import { logger } from '../utils/logger.js';
 import { z } from 'zod';
 import { sign, verify } from 'hono/jwt';
 import { Counter, Gauge } from 'prom-client';
@@ -162,7 +163,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         authStats.login.errors++;
-        console.error('Login error:', error);
+        logger.error('Login error:', error as Error);
         
         return c.json({
           success: false,
@@ -230,7 +231,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         authStats.register.errors++;
-        console.error('Registration error:', error);
+        logger.error('Registration error:', error as Error);
         
         return c.json({
           success: false,
@@ -323,7 +324,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       authStats.profile.errors++;
-      console.error('Profile fetch error:', error);
+      logger.error('Profile fetch error:', error as Error);
       
       return c.json({
         success: false,
@@ -363,7 +364,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       authStats.logout.errors++;
-      console.error('Logout error:', error);
+      logger.error('Logout error:', error as Error);
       
       return c.json({
         success: false,
@@ -456,7 +457,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       authStats.refresh.errors++;
-      console.error('Token refresh error:', error);
+      logger.error('Token refresh error:', error as Error);
       
       return c.json({
         success: false,
@@ -505,7 +506,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
         });
 
       } catch (error) {
-        console.error('Password reset error:', error);
+        logger.error('Password reset error:', error as Error);
         
         return c.json({
           success: false,
@@ -551,7 +552,7 @@ export function createAuthRoutes(cacheService: CacheService): Hono {
       });
 
     } catch (error) {
-      console.error('Password reset error:', error);
+      logger.error('Password reset error:', error as Error);
       
       return c.json({
         success: false,

@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { validateRequest } from '../middleware/validateRequest.js';
 import { ProductService } from '../services/productService.js';
 import { CacheService } from '../services/cacheService.js';
+import { logger } from '../utils/logger.js';
 import { CacheKey } from '../utils/cacheKey.js';
 import type { ApiResponse, ApiProduct, PreAllocatedErrors } from '../types/index.js';
 import { PreAllocatedErrors as Errors } from '../types/index.js';
@@ -118,7 +119,7 @@ export function createProductRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.productsList.errors++;
-        console.error('Products list route error:', error);
+        logger.error('Products list route error:', error as Error);
         
         const response: ApiResponse<ApiProduct[]> = {
           success: false,
@@ -178,7 +179,7 @@ export function createProductRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.productDetail.errors++;
-        console.error('Product detail route error:', error);
+        logger.error('Product detail route error:', error as Error);
         
         const response: ApiResponse<ApiProduct> = {
           success: false,
@@ -233,7 +234,7 @@ export function createProductRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.productSearch.errors++;
-        console.error('Product search route error:', error);
+        logger.error('Product search route error:', error as Error);
         
         const response: ApiResponse<ApiProduct[]> = {
           success: false,
@@ -276,7 +277,7 @@ export function createProductRoutes(cacheService: CacheService): Hono {
           onProgress: (loaded, total) => {
             // Emit progress every 1000 products for monitoring
             if (loaded - progressCount >= 1000 || loaded === total) {
-              console.log(`Bulk fetch progress: ${loaded}/${total} products (${Math.round(loaded/total*100)}%)`);
+              logger.debug(`Bulk fetch progress: ${loaded}/${total} products (${Math.round(loaded/total*100)}%)`);
               progressCount = loaded;
             }
           }
@@ -299,7 +300,7 @@ export function createProductRoutes(cacheService: CacheService): Hono {
         return c.json(result);
       } catch (error) {
         routeStats.bulkFetch.errors++;
-        console.error('Bulk fetch route error:', error);
+        logger.error('Bulk fetch route error:', error as Error);
         
         const response: ApiResponse<ApiProduct[]> = {
           success: false,
@@ -340,7 +341,7 @@ export function createProductRoutes(cacheService: CacheService): Hono {
       
       return c.json(response);
     } catch (error) {
-      console.error('Cache clear error:', error);
+      logger.error('Cache clear error:', error as Error);
       
       const response: ApiResponse<{ cleared: boolean }> = {
         success: false,

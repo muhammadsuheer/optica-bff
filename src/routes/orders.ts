@@ -14,6 +14,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { CacheService } from '../services/cacheService.js';
 import { WooRestApiClient } from '../services/wooRestApiClient.js';
+import { logger } from '../utils/logger.js';
 import type { ApiResponse, Order, OrderItem, ShippingAddress, BillingAddress } from '../types/index.js';
 import { PreAllocatedErrors as Errors } from '../types/index.js';
 
@@ -191,7 +192,7 @@ export function createOrderRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       orderStats.create.errors++;
-      console.error('Create order error:', error);
+      logger.error('Create order error:', error as Error);
       
       if (error instanceof Error && error.name === 'ZodError') {
         return c.json({
@@ -260,7 +261,7 @@ export function createOrderRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       orderStats.list.errors++;
-      console.error('List orders error:', error);
+      logger.error('List orders error:', error as Error);
       
       return c.json({
         success: false,
@@ -352,7 +353,7 @@ export function createOrderRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       orderStats.get.errors++;
-      console.error('Get order error:', error);
+      logger.error('Get order error:', error as Error);
       
       return c.json({
         success: false,
@@ -449,7 +450,7 @@ export function createOrderRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       orderStats.update.errors++;
-      console.error('Update order error:', error);
+      logger.error('Update order error:', error as Error);
       
       return c.json({
         success: false,
@@ -539,7 +540,7 @@ export function createOrderRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       orderStats.cancel.errors++;
-      console.error('Cancel order error:', error);
+      logger.error('Cancel order error:', error as Error);
       
       return c.json({
         success: false,
@@ -584,7 +585,7 @@ export function createOrderRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       orderStats.refund.errors++;
-      console.error('Refund order error:', error);
+      logger.error('Refund order error:', error as Error);
       
       return c.json({
         success: false,
@@ -624,7 +625,7 @@ export function createOrderRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       orderStats.tracking.errors++;
-      console.error('Get tracking error:', error);
+      logger.error('Get tracking error:', error as Error);
       
       return c.json({
         success: false,
@@ -733,12 +734,12 @@ async function processLineItems(lineItems: any[]): Promise<OrderItem[]> {
 
 async function reserveOrderInventory(lineItems: OrderItem[]): Promise<void> {
   // Mock inventory reservation
-  console.log('Reserving inventory for', lineItems.length, 'items');
+  logger.debug('Reserving inventory for', { itemCount: lineItems.length });
 }
 
 async function releaseOrderInventory(lineItems: OrderItem[]): Promise<void> {
   // Mock inventory release
-  console.log('Releasing inventory for', lineItems.length, 'items');
+  logger.debug('Releasing inventory for', { itemCount: lineItems.length });
 }
 
 function generateQueryCacheKey(query: any): string {
@@ -837,5 +838,5 @@ function isValidStatusTransition(currentStatus: string, newStatus: string): bool
 
 async function invalidateOrderListCaches(): Promise<void> {
   // Mock cache invalidation
-  console.log('Invalidating order list caches');
+  logger.debug('Invalidating order list caches');
 }

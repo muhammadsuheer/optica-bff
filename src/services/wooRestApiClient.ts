@@ -233,6 +233,13 @@ export class WooRestApiClient {
   }
 
   /**
+   * Public GET wrapper for WooCommerce REST endpoints
+   */
+  async get<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
+    return this.makeRequest<T>(endpoint, params);
+  }
+
+  /**
    * Handle failure for circuit breaker pattern
    */
   private handleFailure(): void {

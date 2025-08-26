@@ -38,15 +38,14 @@ import { logger } from './utils/logger.js'; // Centralized structured logger (JS
   (console as any)._original = original; // escape hatch
 })();
 import { CacheService, cacheMemoryGauge } from './services/cacheService.js';
-import { startTracing, shutdownTracing } from './observability/tracing.js';
+
 import { requireApiKey } from './middleware/apiKey.js';
 import { createGlobalRateLimiter } from './middleware/rateLimiter.js';
 import databaseService from './services/databaseService.js';
 
 // Validate critical environment variables at startup
 // ---------------------------------------------------------------------------
-// Start tracing (no-op if disabled)
-startTracing();
+
 // 1. Early critical environment validation
 //    Fail-fast only on variables required to boot the HTTP server safely.
 //    (Non‑critical integrations like WooCommerce could be made optional later.)
@@ -143,36 +142,17 @@ const initializeServices = async () => {
     
     // Parallel service initialization (saves 100-200ms startup time)
     const [cacheService, databaseHealthy] = await Promise.all([
-      new Promise<CacheService>((resolve) => {
+      (async () => {
         const cache = new CacheService();
-        
-        // Add timeout for Redis connection (5 seconds)
-        const timeout = setTimeout(() => {
-      logger.warn('Redis connection timeout – falling back to in‑memory cache');
-          resolve(cache);
-        }, 5000);
-        
-        // Wait for Redis connection before resolving
-        cache['redis'].once('ready', () => {
-          clearTimeout(timeout);
-      logger.info('Redis connected successfully');
-          resolve(cache);
-        });
-        
-        cache['redis'].once('error', (error) => {
-          clearTimeout(timeout);
-      logger.warn('Redis connection failed – using in‑memory cache', { error: error.message });
-          resolve(cache); // Graceful fallback
-        });
-        
-        // If Redis URL is not provided, resolve immediately
-        if (!env.REDIS_URL || env.REDIS_URL === 'redis://localhost:6379') {
-          clearTimeout(timeout);
-      logger.warn('No Redis URL provided – using in‑memory cache');
-          resolve(cache);
+        const ready = await cache.waitForReady(5000);
+        if (ready) {
+          logger.info('Redis connected successfully');
+        } else {
+          logger.warn('Redis not ready – using in‑memory cache');
         }
-      }),
-      initializeDatabaseService() // Initialize database service
+        return cache;
+      })(),
+      initializeDatabaseService()
     ]);
     
     // Initialize rate limiter with the cache service
@@ -194,7 +174,7 @@ const servicesPromise = initializeServices();
 // Create Hono app
 const app = new Hono();
 
-// Fast path middleware: Request ID generation as FIRST middleware (critical for tracing)
+// Fast path middleware: Request ID generation as FIRST middleware (critical for logging)
 // Middleware: assigns request ID + collects Prometheus metrics for every request.
 app.use('*', async (c, next) => {
   const requestId = randomUUID();
@@ -257,14 +237,7 @@ const setupRoutes = async () => {
   const { cacheService, globalRateLimiter } = await servicesPromise;
   const wpDisabled = process.env.INTEGRATION_WP_DISABLED === '1';
   
-  // Initialize database service
-  try {
-  await databaseService.initializeDatabaseService();
-  logger.info('Database service initialized successfully');
-  } catch (error) {
-  logger.error('Database service initialization failed', error as Error);
-    // Continue without database - graceful degradation
-  }
+  // Database service already initialized during service bootstrap
 
   // Initialize webhook service
   // Webhook service is now handled directly by routes
@@ -355,22 +328,14 @@ app.post('/admin/cache/invalidate', requireApiKey(), async (c) => {
   }
 });
 
-// Additional Stage 5 metrics: per-route latency & cache size gauges
-const routeLatency = new Histogram({
-  name: 'http_request_duration_seconds',
-  help: 'HTTP request latency by method and route',
-  labelNames: ['method','route','status'] as const,
-  buckets: [0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2,5]
-});
-
-// Wrap app.use to record latency (lightweight global middleware)
+// Record latency using the primary histogram
 app.use('*', async (c, next) => {
   const start = performance.now();
   await next();
   try {
     const dur = (performance.now() - start) / 1000;
     const path = c.req.path.replace(/\d+/g, ':id');
-    routeLatency.labels(c.req.method, path, String(c.res.status || 200)).observe(dur);
+    httpRequestDuration.observe({ method: c.req.method, route: path, status_code: String(c.res.status || 200) }, dur);
   } catch {/* ignore metrics errors */}
 });
 
@@ -385,6 +350,13 @@ app.get('/metrics', async (c) => {
       cacheMemoryGauge.labels('l1').set(stats.l1Size);
       cacheMemoryGauge.labels('l2').set(stats.l2Size);
     } catch {/* ignore */}
+    return c.text(await register.metrics());
+  } catch (error) {
+  logger.error('Metrics collection error', error as Error);
+    return c.text('Error collecting metrics', 500);
+  }
+});
+
 // Readiness endpoint: verifies core dependencies (DB) and optional WP/Woo if enabled
 app.get('/ready', async (c) => {
   const checks: Record<string, string> = {};
@@ -419,12 +391,6 @@ app.get('/ready', async (c) => {
   }
   const allOk = Object.values(checks).every(v => v === 'ok' || v === 'disabled' || v === 'skipped');
   return c.json({ status: allOk ? 'ready' : 'degraded', checks });
-});
-    return c.text(await register.metrics());
-  } catch (error) {
-  logger.error('Metrics collection error', error as Error);
-    return c.text('Error collecting metrics', 500);
-  }
 });
 
 // Global error handler for consistent JSON errors & prevent stack trace leaks
@@ -495,15 +461,13 @@ const gracefulShutdown = async (signal: string) => {
     if (serverInstance) {
       serverInstance.close(() => {
         logger.info('HTTP server closed');
-        // Shutdown tracing exporter
-        shutdownTracing().finally(() => {
+        // Graceful shutdown
         process.exit(0);
-        });
       });
     } else {
       // If server hasn't been initialized yet, just exit
       logger.info('Server was not yet initialized');
-      shutdownTracing().finally(() => process.exit(0));
+      process.exit(0);
     }
     
     // Force exit after timeout to prevent hanging

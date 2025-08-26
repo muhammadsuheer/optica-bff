@@ -15,6 +15,7 @@ import { CacheService } from './cacheService.js';
 import { CacheKey } from '../utils/cacheKey.js';
 import { WPGraphQLClient } from './wpGraphqlClient.js';
 import { WooRestApiClient } from './wooRestApiClient.js';
+import { logger } from '../utils/logger.js';
 import { envConfig } from '../config/env.js';
 import { sanitizeUrl } from '../utils/sanitizeHtml.js';
 
@@ -110,7 +111,7 @@ export class ProductService {
       return await this.fetchProductsFresh(cacheKey, params, startTime);
 
     } catch (error) {
-      console.error('Product service error:', error);
+      logger.error('Product service error:', error as Error);
       return {
         success: false,
         error: {
@@ -153,7 +154,7 @@ export class ProductService {
         data: products,
       };
     } catch (error) {
-      console.error('Fresh products fetch error:', error);
+      logger.error('Fresh products fetch error:', error as Error);
       throw error;
     }
   }
@@ -183,12 +184,12 @@ export class ProductService {
             isRefreshing.set(cacheKey, refreshPromise.then(() => undefined));
             await refreshPromise;
           } catch (err) {
-            console.error('Background refresh error:', err);
+            logger.error('Background refresh error:', err as Error);
           } finally {
             isRefreshing.delete(cacheKey);
           }
         };
-        work().catch(e => console.error('Background refresh unhandled:', e));
+        work().catch(e => logger.error('Background refresh unhandled:', e as Error));
       }, 10);
   }
 
@@ -200,7 +201,7 @@ export class ProductService {
       // For now, return empty map - stock integration can be added later
       return new Map();
     } catch (error) {
-      console.error('Stock data batch error:', error);
+      logger.error('Stock data batch error:', error as Error);
       return new Map();
     }
   }
@@ -353,14 +354,15 @@ export class ProductService {
       await this.cache.set(cacheKey, product, ttl);
 
       const processingTime = Date.now() - startTime;
-      console.log(`Product ${productId} processing time: ${processingTime}ms`);
+      logger.performance('Product fetch', processingTime, { productId });
+      // logger.debug(`Product ${productId} processing time: ${processingTime}ms`);
 
       return {
         success: true,
         data: product,
       };
     } catch (error) {
-      console.error(`Product ${productId} fetch error:`, error);
+      logger.error(`Product ${productId} fetch error:`, error as Error);
       return {
         success: false,
         error: {
@@ -444,7 +446,7 @@ export class ProductService {
       };
       
     } catch (error) {
-      console.error('Bulk products fetch error:', error);
+      logger.error('Bulk products fetch error:', error as Error);
       return {
         success: false,
         error: {

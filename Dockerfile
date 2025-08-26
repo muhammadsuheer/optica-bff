@@ -1,49 +1,60 @@
-# Use Node.js 20 LTS (Alpine for smaller size)
-FROM node:20-alpine AS base
+# ===========================================
+# Multi-stage Dockerfile for Production
+# Optimized for Coolify deployment
+# ===========================================
 
-# Minimal build dependencies (none heavy image libs needed now)
-RUN apk add --no-cache \
-    nodejs-current \
-    libc6-compat
-
+# Stage 1: Dependencies
+FROM node:20-alpine AS deps
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-COPY prisma ./prisma/
+# Install dependencies based on the preferred package manager
+COPY package.json package-lock.json* ./
+RUN npm ci --only=production && npm cache clean --force
 
-# Install dependencies
-RUN npm ci --only=production --ignore-scripts
+# Stage 2: Builder
+FROM node:20-alpine AS builder
+WORKDIR /app
 
-# Build stage
-FROM base AS build
-RUN npm ci --include=dev
+# Copy dependencies and source
+COPY package.json package-lock.json* ./
 COPY . .
+
+# Install all dependencies (including dev)
+RUN npm ci
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build the application
 RUN npm run build
 
-# Production stage
-FROM base AS production
+# Stage 3: Production runner
+FROM node:20-alpine AS runner
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nodejs
 
 # Copy built application
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/package*.json ./
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma ./prisma
 
-# Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nextjs -u 1001
+# Copy Prisma generated client
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
-# Change ownership and switch to non-root user
-RUN chown -R nextjs:nodejs /app
-USER nextjs
+# Set ownership
+RUN chown -R nodejs:nodejs /app
+USER nodejs
 
 # Expose port
 EXPOSE 3000
 
-# Health check (lightweight liveness)
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/healthz', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
 
 # Start the application
 CMD ["npm", "start"]

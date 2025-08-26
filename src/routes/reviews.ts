@@ -13,6 +13,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateRequest } from '../middleware/validateRequest.js';
 import { CacheService } from '../services/cacheService.js';
+import { logger } from '../utils/logger.js';
 import type { ApiResponse } from '../types/index.js';
 
 // Review interfaces
@@ -209,7 +210,7 @@ export function createReviewRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.reviewsList.errors++;
-        console.error('Reviews list route error:', error);
+        logger.error('Reviews list route error:', error as Error);
         
         const response: ApiResponse<Review[]> = {
           success: false,
@@ -286,7 +287,7 @@ export function createReviewRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.reviewDetail.errors++;
-        console.error('Review detail route error:', error);
+        logger.error('Review detail route error:', error as Error);
         
         const response: ApiResponse<Review> = {
           success: false,
@@ -364,7 +365,7 @@ export function createReviewRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.createReview.errors++;
-        console.error('Create review route error:', error);
+        logger.error('Create review route error:', error as Error);
         
         const response: ApiResponse<Review> = {
           success: false,
@@ -439,7 +440,7 @@ export function createReviewRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.updateReview.errors++;
-        console.error('Update review route error:', error);
+        logger.error('Update review route error:', error as Error);
         
         const response: ApiResponse<Review> = {
           success: false,
@@ -504,7 +505,7 @@ export function createReviewRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.deleteReview.errors++;
-        console.error('Delete review route error:', error);
+        logger.error('Delete review route error:', error as Error);
         
         const response: ApiResponse<{ deleted: boolean }> = {
           success: false,
@@ -585,7 +586,7 @@ export function createReviewRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.reviewStats.errors++;
-        console.error('Review stats route error:', error);
+        logger.error('Review stats route error:', error as Error);
         
         const response: ApiResponse<ReviewStats> = {
           success: false,
