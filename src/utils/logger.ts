@@ -30,11 +30,11 @@ class Logger {
   }
 
   info(message: string, context?: LogContext): void {
-    console.log(this.formatMessage('INFO', message, context));
+    process.stdout.write(this.formatMessage('INFO', message, context) + '\n');
   }
 
   warn(message: string, context?: LogContext): void {
-    console.warn(this.formatMessage('WARN', message, context));
+    process.stderr.write(this.formatMessage('WARN', message, context) + '\n');
   }
 
   error(message: string, error?: Error | LogContext, context?: LogContext): void {
@@ -50,12 +50,12 @@ class Logger {
       errorContext = { ...error, ...context };
     }
 
-    console.error(this.formatMessage('ERROR', message, errorContext));
+    process.stderr.write(this.formatMessage('ERROR', message, errorContext) + '\n');
   }
 
   debug(message: string, context?: LogContext): void {
     if (this.isDevelopment) {
-      console.debug(this.formatMessage('DEBUG', message, context));
+      process.stdout.write(this.formatMessage('DEBUG', message, context) + '\n');
     }
   }
 

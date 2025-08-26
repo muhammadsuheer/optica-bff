@@ -14,29 +14,15 @@ import { env } from './config/env.js';
 import { logger } from './utils/logger.js'; // Centralized structured logger (JSON in production)
 
 // ---------------------------------------------------------------------------
-// Global console redirection: unify legacy console.* calls through logger so
-// we don't have to refactor every existing file immediately. Preserves original
-// method signatures while enforcing consistent structured output in production.
+// Store original console methods before logger import to prevent circular dependency
 // ---------------------------------------------------------------------------
-(() => {
-  const passthrough = (level: 'info'|'warn'|'error'|'debug'|'log', args: any[]) => {
-    const msg = args.shift();
-    const merged = args.length === 1 ? args[0] : (args.length ? { args } : undefined);
-    switch (level) {
-      case 'warn': return logger.warn(msg, merged); 
-      case 'error': return logger.error(msg, merged instanceof Error ? merged : undefined, merged && !(merged instanceof Error) ? merged : undefined);
-      case 'debug': return logger.debug(msg, merged);
-      case 'log':
-      case 'info':
-      default: return logger.info(msg, merged);
-    }
-  };
-  const original = { ...console };
-  ['log','info','warn','error','debug'].forEach((m:any) => {
-    (console as any)[m] = (...a:any[]) => passthrough(m, [...a]);
-  });
-  (console as any)._original = original; // escape hatch
-})();
+const originalConsole = {
+  log: console.log.bind(console),
+  info: console.info.bind(console),
+  warn: console.warn.bind(console),
+  error: console.error.bind(console),
+  debug: console.debug.bind(console),
+};
 import { CacheService, cacheMemoryGauge } from './services/cacheService.js';
 
 import { requireApiKey } from './middleware/apiKey.js';

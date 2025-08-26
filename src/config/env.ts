@@ -69,6 +69,7 @@ const configSchemas: Record<ConfigCategory, Record<string, any>> = {
     RATE_LIMIT_MAX_REQUESTS: num({ default: 100 }),
     CACHE_TTL_PRODUCTS: num({ default: 60 }), // seconds
     CACHE_TTL_PRODUCT_DETAIL: num({ default: 60 }), // seconds
+    CACHE_TTL_CATEGORIES: num({ default: 900 }), // seconds
     REQUEST_TIMEOUT_MS: num({ default: 10000 }), // 10 seconds
   },
   
