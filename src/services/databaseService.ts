@@ -287,11 +287,11 @@ export async function getProduct(id: number): Promise<DbProductLite | null> {
         sale_price: true,
         stock_quantity: true,
         status: true,
-        categories: true,
+        category_ids: true,
         images: true,
-        meta_data: true,
-    date_created: true,
-    date_modified: true
+        metadata: true,
+        cached_at: true,
+        expires_at: true
       }
     });
     if (!row) return null;
@@ -300,6 +300,10 @@ export async function getProduct(id: number): Promise<DbProductLite | null> {
       woocommerce_id: row.woocommerce_id == null ? null : Number(row.woocommerce_id),
       price: row.price == null ? null : Number(row.price),
       sale_price: row.sale_price == null ? null : Number(row.sale_price),
+      categories: row.category_ids ? JSON.parse(row.category_ids) : [],
+      meta_data: row.metadata || {},
+      date_created: row.cached_at,
+      date_modified: row.cached_at
     } as DbProductLite;
   });
 }
@@ -315,8 +319,8 @@ export async function getPopularProducts(limit = 100): Promise<DbPopularProduct[
     const rows = await client.cachedProduct.findMany({
       take: limit,
       where: { status: 'publish' },
-      orderBy: [ { featured: 'desc' }, { total_sales: 'desc' }, { date_modified: 'desc' } ],
-      select: { id: true, woocommerce_id: true, name: true, sku: true, price: true }
+      orderBy: [ { cached_at: 'desc' } ],
+      select: { id: true, woocommerce_id: true, name: true, price: true }
     });
     return rows.map((r: any) => ({
       id: r.id,
