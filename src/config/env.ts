@@ -70,9 +70,6 @@ const configSchemas: Record<ConfigCategory, Record<string, any>> = {
     CACHE_TTL_PRODUCTS: num({ default: 60 }), // seconds
     CACHE_TTL_PRODUCT_DETAIL: num({ default: 60 }), // seconds
     REQUEST_TIMEOUT_MS: num({ default: 10000 }), // 10 seconds
-  OTEL_ENABLED: bool({ default: false }),
-  OTEL_EXPORTER_OTLP_ENDPOINT: str({ default: '' }),
-  OTEL_SAMPLE_RATIO: num({ default: 1 }),
   },
   
   [ConfigCategory.FEATURES]: {
