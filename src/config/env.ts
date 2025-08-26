@@ -1,6 +1,7 @@
 import { cleanEnv, str, num, bool, url } from 'envalid';
 import { config as dotenvConfig } from 'dotenv';
 import { createHash } from 'crypto';
+import { logger } from '../utils/logger.js';
 
 // Load environment variables once at module initialization
 dotenvConfig();
@@ -118,7 +119,7 @@ class ConfigCache {
         const cachedHash = this.validationHashes.get(category);
         
         if (currentHash !== cachedHash) {
-          console.warn(`⚠️  Configuration change detected for ${category}, revalidating...`);
+          logger.warn(`Configuration change detected for ${category}, revalidating...`);
           this.cache.delete(category);
           this.validationHashes.delete(category);
         } else {
@@ -130,7 +131,7 @@ class ConfigCache {
     }
     
     // Validate and cache the configuration
-    console.log(`🔧 Lazy loading ${category} configuration...`);
+    logger.debug(`Lazy loading ${category} configuration...`);
     const startTime = performance.now();
     
     try {
@@ -143,11 +144,11 @@ class ConfigCache {
       this.accessTimes.set(category, currentTime);
       
       const loadTime = performance.now() - startTime;
-      console.log(`✅ ${category} configuration loaded in ${loadTime.toFixed(2)}ms`);
+      logger.debug(`${category} configuration loaded in ${loadTime.toFixed(2)}ms`);
       
       return validated;
     } catch (error: any) {
-      console.error(`❌ Failed to validate ${category} configuration:`, error);
+      logger.error(`Failed to validate ${category} configuration:`, error);
       throw new Error(`Invalid ${category} configuration: ${error?.message || 'Unknown error'}`);
     }
   }
@@ -156,20 +157,20 @@ class ConfigCache {
    * Preload critical configuration categories
    */
   preload(categories: ConfigCategory[]): void {
-    console.log(`🚀 Preloading ${categories.length} configuration categories...`);
+    logger.info(`Preloading ${categories.length} configuration categories...`);
     const startTime = performance.now();
     
     for (const category of categories) {
       try {
         this.get(category);
       } catch (error) {
-        console.error(`❌ Failed to preload ${category}:`, error);
+        logger.error(`Failed to preload ${category}:`, error as Error);
         throw error;
       }
     }
     
     const totalTime = performance.now() - startTime;
-    console.log(`✅ Configuration preloading completed in ${totalTime.toFixed(2)}ms`);
+    logger.info(`Configuration preloading completed in ${totalTime.toFixed(2)}ms`);
   }
   
   /**

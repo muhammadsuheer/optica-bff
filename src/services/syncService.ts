@@ -545,7 +545,7 @@ export class SyncService {
 
       return results;
     } catch (error) {
-      logger.error('Full sync failed:', error);
+      logger.error('Full sync failed:', error as Error);
       throw error;
     } finally {
       this.isRunning = false;
@@ -580,7 +580,7 @@ export class SyncService {
       const lastSyncTime = await this.cacheService.get('sync:last_time');
       return lastSyncTime ? new Date(lastSyncTime as string) : new Date(Date.now() - 24 * 60 * 60 * 1000);
     } catch (error) {
-      logger.error('Failed to get last sync time:', error);
+      logger.error('Failed to get last sync time:', error as Error);
       return new Date(Date.now() - 24 * 60 * 60 * 1000);
     }
   }
@@ -592,7 +592,7 @@ export class SyncService {
     try {
       await this.cacheService.set('sync:last_time', new Date().toISOString(), 86400);
     } catch (error) {
-      logger.error('Failed to update last sync time:', error);
+      logger.error('Failed to update last sync time:', error as Error);
     }
   }
 
@@ -628,7 +628,7 @@ export class SyncService {
         currentStats: this.syncStats
       };
     } catch (error) {
-      logger.error('Failed to get sync stats:', error);
+      logger.error('Failed to get sync stats:', error as Error);
       return {
         lastSyncTime: null,
         isRunning: this.isRunning,

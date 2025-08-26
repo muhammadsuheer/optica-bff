@@ -13,6 +13,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateRequest } from '../middleware/validateRequest.js';
 import { CacheService } from '../services/cacheService.js';
+import { logger } from '../utils/logger.js';
 import type { ApiResponse } from '../types/index.js';
 
 // WordPress Content interfaces
@@ -281,7 +282,7 @@ export function createWordPressRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.postsList.errors++;
-        console.error('WordPress posts list route error:', error);
+        logger.error('WordPress posts list route error:', error as Error);
         
         const response: ApiResponse<WordPressPost[]> = {
           success: false,
@@ -358,7 +359,7 @@ export function createWordPressRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.postDetail.errors++;
-        console.error('WordPress post detail route error:', error);
+        logger.error('WordPress post detail route error:', error as Error);
         
         const response: ApiResponse<WordPressPost> = {
           success: false,
@@ -467,7 +468,7 @@ export function createWordPressRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.pagesList.errors++;
-        console.error('WordPress pages list route error:', error);
+        logger.error('WordPress pages list route error:', error as Error);
         
         const response: ApiResponse<WordPressPage[]> = {
           success: false,
@@ -544,7 +545,7 @@ export function createWordPressRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.pageDetail.errors++;
-        console.error('WordPress page detail route error:', error);
+        logger.error('WordPress page detail route error:', error as Error);
         
         const response: ApiResponse<WordPressPage> = {
           success: false,
@@ -637,7 +638,7 @@ export function createWordPressRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.mediaList.errors++;
-        console.error('WordPress media list route error:', error);
+        logger.error('WordPress media list route error:', error as Error);
         
         const response: ApiResponse<MediaItem[]> = {
           success: false,
@@ -714,7 +715,7 @@ export function createWordPressRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.mediaDetail.errors++;
-        console.error('WordPress media detail route error:', error);
+        logger.error('WordPress media detail route error:', error as Error);
         
         const response: ApiResponse<MediaItem> = {
           success: false,
@@ -806,7 +807,7 @@ export function createWordPressRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.searchContent.errors++;
-        console.error('WordPress search route error:', error);
+        logger.error('WordPress search route error:', error as Error);
         
         const response: ApiResponse<(WordPressPost | WordPressPage)[]> = {
           success: false,
@@ -904,7 +905,7 @@ export function createWordPressRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.sitemapGenerate.errors++;
-        console.error('WordPress sitemap route error:', error);
+        logger.error('WordPress sitemap route error:', error as Error);
         
         const response: ApiResponse<any[]> = {
           success: false,

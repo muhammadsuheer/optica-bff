@@ -13,6 +13,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateRequest } from '../middleware/validateRequest.js';
 import { CacheService } from '../services/cacheService.js';
+import { logger } from '../utils/logger.js';
 import type { ApiResponse } from '../types/index.js';
 
 // Category interfaces
@@ -276,7 +277,7 @@ export function createCategoryRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.categoriesList.errors++;
-        console.error('Categories list route error:', error);
+        logger.error('Categories list route error:', error as Error);
         
         const response: ApiResponse<Category[]> = {
           success: false,
@@ -339,7 +340,7 @@ export function createCategoryRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.categoryTree.errors++;
-        console.error('Category tree route error:', error);
+        logger.error('Category tree route error:', error as Error);
         
         const response: ApiResponse<CategoryTree[]> = {
           success: false,
@@ -422,7 +423,7 @@ export function createCategoryRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.categoryDetail.errors++;
-        console.error('Category detail route error:', error);
+        logger.error('Category detail route error:', error as Error);
         
         const response: ApiResponse<Category> = {
           success: false,
@@ -510,7 +511,7 @@ export function createCategoryRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.createCategory.errors++;
-        console.error('Create category route error:', error);
+        logger.error('Create category route error:', error as Error);
         
         const response: ApiResponse<Category> = {
           success: false,
@@ -601,7 +602,7 @@ export function createCategoryRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.updateCategory.errors++;
-        console.error('Update category route error:', error);
+        logger.error('Update category route error:', error as Error);
         
         const response: ApiResponse<Category> = {
           success: false,
@@ -679,7 +680,7 @@ export function createCategoryRoutes(cacheService: CacheService): Hono {
 
       } catch (error) {
         routeStats.deleteCategory.errors++;
-        console.error('Delete category route error:', error);
+        logger.error('Delete category route error:', error as Error);
         
         const response: ApiResponse<{ deleted: boolean }> = {
           success: false,

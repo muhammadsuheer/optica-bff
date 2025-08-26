@@ -2,6 +2,7 @@ import { Redis } from 'ioredis';
 import { LRUCache } from 'lru-cache';
 import { envConfig } from '../config/env.js';
 import { Counter, Gauge } from 'prom-client';
+import { logger } from '../utils/logger.js';
 import { CacheKey } from '../utils/cacheKey.js';
 import type { CacheEntry } from '../types/index.js';
 
@@ -70,12 +71,12 @@ export class CacheService {
 
     // Optimized Redis event handlers
     this.redis.on('error', this.handleRedisError);
-    this.redis.on('connect', () => console.log('Redis connected'));
-    this.redis.on('ready', () => console.log('Redis ready'));
+    this.redis.on('connect', () => logger.info('Redis connected'));
+    this.redis.on('ready', () => logger.info('Redis ready'));
   }
 
   private handleRedisError = (error: Error) => {
-    console.error('Redis error:', error.message);
+    logger.error('Redis error:', error);
     // Don't log full stack traces in production for performance
   };
 
@@ -123,7 +124,7 @@ export class CacheService {
     cacheMisses.inc();
       return null;
     } catch (error) {
-      console.error(`Cache get error for key ${key}:`, error);
+      logger.error('Cache get error', error as Error, { key });
       return null;
     }
   }
@@ -159,7 +160,7 @@ export class CacheService {
         this.l2Cache.set(namespacedKey, entry, { ttl: ttlSeconds * 1000 });
       }
     } catch (error) {
-      console.error(`Cache set error for key ${key}:`, error);
+      logger.error('Cache set error', error as Error, { key: namespacedKey });
     }
   }
 
@@ -191,7 +192,7 @@ export class CacheService {
       this.l2Cache.delete(namespacedKey);
       await this.redis.del(namespacedKey);
     } catch (error) {
-      console.error(`Cache delete error for key ${key}:`, error);
+      logger.error('Cache delete error', error as Error, { key });
     }
   }
 
@@ -227,7 +228,7 @@ export class CacheService {
   // Publish invalidation for other replicas
   try { await this.redis.publish('cache.invalidate', JSON.stringify({ pattern: namespacedPattern })); } catch {/* ignore */}
     } catch (error) {
-      console.error(`Cache deletePattern error for pattern ${pattern}:`, error);
+      logger.error('Cache deletePattern error', error as Error, { pattern });
     }
   }
 
@@ -276,7 +277,7 @@ export class CacheService {
 
       return redisChecks;
     } catch (error) {
-      console.error('Cache exists error:', error);
+      logger.error('Cache exists error:', error as Error);
       return keys.map(() => false);
     }
   }
@@ -340,7 +341,7 @@ export class CacheService {
                 this.l1Cache.set(key, entry);
               }
             } catch (parseError) {
-              console.error(`Failed to parse cached value for key ${key}:`, parseError);
+              logger.error('Failed to parse cached value for key', parseError as Error, { key });
             }
           }
         }
@@ -348,7 +349,7 @@ export class CacheService {
 
       return results;
     } catch (error) {
-      console.error('Cache getMany error:', error);
+      logger.error('Cache getMany error:', error as Error);
       return results;
     }
   }
@@ -418,6 +419,26 @@ export class CacheService {
       .replace(/\?/g, '.');
     
     return new RegExp(`^${regexPattern}$`).test(str);
+  }
+
+  /**
+   * Wait for Redis to be ready with timeout. Returns true if ready, false on timeout or error.
+   */
+  async waitForReady(timeoutMs = 5000): Promise<boolean> {
+    // if already ready, return fast
+    if ((this.redis as any).status === 'ready') return true;
+    return new Promise<boolean>((resolve) => {
+      const onReady = () => { cleanup(); resolve(true); };
+      const onError = () => { cleanup(); resolve(false); };
+      const cleanup = () => {
+        this.redis.off('ready', onReady);
+        this.redis.off('error', onError);
+        clearTimeout(timer);
+      };
+      const timer = setTimeout(() => { cleanup(); resolve(false); }, timeoutMs);
+      this.redis.once('ready', onReady);
+      this.redis.once('error', onError);
+    });
   }
 
   /** Metrics snapshot for /metrics enrichment */

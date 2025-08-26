@@ -14,6 +14,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import { CacheService } from '../services/cacheService.js';
 import { WooRestApiClient } from '../services/wooRestApiClient.js';
+import { logger } from '../utils/logger.js';
 import type { ApiResponse, Customer, CustomerAddress, Order } from '../types/index.js';
 import { PreAllocatedErrors as Errors } from '../types/index.js';
 
@@ -21,9 +22,7 @@ import { PreAllocatedErrors as Errors } from '../types/index.js';
 const customerRegistrationSchema = z.object({
   email: z.string().email().max(254),
   first_name: z.string().min(1).max(50),
-       customer_ip_address: c?.req.header('CF-Connecting-IP') ||
-                        c?.req.header('X-Forwarded-For') ||
-                        c?.req.header('X-Real-IP') ||st_name: z.string().min(1).max(50),
+  last_name: z.string().min(1).max(50),
   username: z.string().min(3).max(50).optional(),
   password: z.string().min(8).max(128),
 }).strict();
@@ -177,7 +176,7 @@ export function createCustomerRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       customerStats.register.errors++;
-      console.error('Customer registration error:', error);
+      logger.error('Customer registration error:', error as Error);
       
       if (error instanceof Error && error.name === 'ZodError') {
         return c.json({
@@ -246,7 +245,7 @@ export function createCustomerRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       customerStats.list.errors++;
-      console.error('List customers error:', error);
+      logger.error('List customers error:', error as Error);
       
       return c.json({
         success: false,
@@ -337,7 +336,7 @@ export function createCustomerRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       customerStats.get.errors++;
-      console.error('Get customer error:', error);
+      logger.error('Get customer error:', error as Error);
       
       return c.json({
         success: false,
@@ -415,7 +414,7 @@ export function createCustomerRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       customerStats.update.errors++;
-      console.error('Update customer error:', error);
+      logger.error('Update customer error:', error as Error);
       
       return c.json({
         success: false,
@@ -495,7 +494,7 @@ export function createCustomerRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       customerStats.delete.errors++;
-      console.error('Delete customer error:', error);
+      logger.error('Delete customer error:', error as Error);
       
       return c.json({
         success: false,
@@ -556,7 +555,7 @@ export function createCustomerRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       customerStats.addresses.errors++;
-      console.error('Get customer addresses error:', error);
+      logger.error('Get customer addresses error:', error as Error);
       
       return c.json({
         success: false,
@@ -627,7 +626,7 @@ export function createCustomerRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       customerStats.addresses.errors++;
-      console.error('Add customer address error:', error);
+      logger.error('Add customer address error:', error as Error);
       
       return c.json({
         success: false,
@@ -695,7 +694,7 @@ export function createCustomerRoutes(cacheService: CacheService): Hono {
 
     } catch (error) {
       customerStats.orders.errors++;
-      console.error('Get customer orders error:', error);
+      logger.error('Get customer orders error:', error as Error);
       
       return c.json({
         success: false,
@@ -887,5 +886,5 @@ async function fetchCustomerOrders(customerId: number, page: number, perPage: nu
 
 async function invalidateCustomerListCaches(): Promise<void> {
   // Mock cache invalidation
-  console.log('Invalidating customer list caches');
+  logger.debug('Invalidating customer list caches');
 }

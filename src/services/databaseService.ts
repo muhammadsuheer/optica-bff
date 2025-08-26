@@ -56,24 +56,24 @@ export function initializePrisma(): PrismaClient {
 
     // Error event handling
     (prisma as any).$on('error', (event: any) => {
-      console.error('Prisma error:', event);
+      logger.error('Prisma error:', new Error(event.message || event.toString()));
       dbStats.lastError = event.message;
       isHealthy = false;
     });
 
     // Warning event handling
     (prisma as any).$on('warn', (event: any) => {
-      console.warn('Prisma warning:', event);
+      logger.warn('Prisma warning:', { event: event.message || event.toString() });
     });
 
     dbStats.connectionAttempts++;
-    console.log('✅ Prisma client initialized successfully');
+    logger.info('Prisma client initialized successfully');
     
     return prisma;
   } catch (error) {
     dbStats.failedConnections++;
     dbStats.lastError = error instanceof Error ? error.message : 'Unknown error';
-    console.error('❌ Failed to initialize Prisma client:', error);
+    logger.error('Failed to initialize Prisma client:', error as Error);
     throw error;
   }
 }
@@ -114,7 +114,7 @@ export async function checkDatabaseHealth(forceCheck = false): Promise<boolean> 
     isHealthy = true;
     lastHealthCheck = now;
     
-    console.log(`✅ Database health check passed (${queryTime}ms)`);
+    logger.debug(`Database health check passed (${queryTime}ms)`);
     return true;
   } catch (error) {
     dbStats.failedConnections++;
@@ -122,7 +122,7 @@ export async function checkDatabaseHealth(forceCheck = false): Promise<boolean> 
     isHealthy = false;
     lastHealthCheck = now;
     
-    console.error('❌ Database health check failed:', error);
+    logger.error('Database health check failed:', error as Error);
     return false;
   }
 }
@@ -138,7 +138,7 @@ export async function executeWithFallback<T>(
     // Check database health first
     const healthy = await checkDatabaseHealth();
     if (!healthy && fallback) {
-      console.warn('Database unhealthy, using fallback');
+      logger.warn('Database unhealthy, using fallback');
       return await fallback();
     }
 
@@ -151,16 +151,16 @@ export async function executeWithFallback<T>(
     
     return result;
   } catch (error) {
-    console.error('Database operation failed:', error);
+    logger.error('Database operation failed:', error as Error);
     dbStats.lastError = error instanceof Error ? error.message : 'Unknown error';
     
     // Try fallback if available
     if (fallback) {
       try {
-        console.log('Attempting fallback operation...');
+        logger.debug('Attempting fallback operation...');
         return await fallback();
       } catch (fallbackError) {
-        console.error('Fallback operation also failed:', fallbackError);
+        logger.error('Fallback operation also failed:', fallbackError as Error);
       }
     }
     
@@ -187,9 +187,9 @@ export async function closeDatabaseConnection(): Promise<void> {
   if (prisma) {
     try {
       await prisma.$disconnect();
-      console.log('✅ Database connection closed gracefully');
+      logger.info('Database connection closed gracefully');
     } catch (error) {
-      console.error('❌ Error closing database connection:', error);
+      logger.error('Error closing database connection:', error as Error);
     } finally {
       prisma = null;
       isHealthy = false;
@@ -217,7 +217,7 @@ export async function withTransaction<T>(
       return result;
     });
   } catch (error) {
-    console.error('Transaction failed:', error);
+    logger.error('Transaction failed:', error as Error);
     dbStats.lastError = error instanceof Error ? error.message : 'Transaction failed';
     return null;
   }
@@ -228,7 +228,7 @@ export async function withTransaction<T>(
  */
 export async function initializeDatabaseService(): Promise<boolean> {
   try {
-    console.log('🚀 Initializing database service...');
+    logger.info('Initializing database service...');
     
     // Initialize Prisma client
     initializePrisma();
@@ -237,18 +237,18 @@ export async function initializeDatabaseService(): Promise<boolean> {
     const healthy = await checkDatabaseHealth(true);
     
     if (healthy) {
-      console.log('✅ Database service initialized successfully');
+      logger.info('Database service initialized successfully');
       // Start periodic health checks
       setInterval(() => {
-        checkDatabaseHealth().catch(console.error);
+        checkDatabaseHealth().catch(err => logger.error('Health check failed:', err as Error));
       }, HEALTH_CHECK_INTERVAL);
     } else {
-      console.warn('⚠️ Database service initialized but database is not healthy');
+      logger.warn('Database service initialized but database is not healthy');
     }
     
     return healthy;
   } catch (error) {
-    console.error('❌ Failed to initialize database service:', error);
+    logger.error('Failed to initialize database service:', error as Error);
     return false;
   }
 }
@@ -259,7 +259,7 @@ export async function initializeDatabaseService(): Promise<boolean> {
 // Minimal representation of product row used by BFF (numbers coerced from Prisma Decimal)
 export interface DbProductLite {
   id: number;
-  woocommerce_id: number | null;
+  woocommerce_id: number; // non-null per schema (unique)
   name: string;
   description: string | null;
   price: number | null;      // coerced
@@ -269,14 +269,14 @@ export interface DbProductLite {
   categories: any; // TODO: refine categories relation type
   images: any;     // TODO: refine image relation type
   meta_data: any;  // TODO: refine meta_data structure
-  created_at: Date;
-  updated_at: Date;
+  date_created: Date;
+  date_modified: Date;
 }
 
 export async function getProduct(id: number): Promise<DbProductLite | null> {
   return executeWithFallback(async () => {
     const client = getPrismaClient();
-    const row = await client.product.findUnique({
+  const row = await client.cachedProduct.findUnique({
       where: { id },
       select: {
         id: true,
@@ -290,13 +290,14 @@ export async function getProduct(id: number): Promise<DbProductLite | null> {
         categories: true,
         images: true,
         meta_data: true,
-        created_at: true,
-        updated_at: true
+    date_created: true,
+    date_modified: true
       }
     });
     if (!row) return null;
     return {
       ...row,
+      woocommerce_id: row.woocommerce_id == null ? null : Number(row.woocommerce_id),
       price: row.price == null ? null : Number(row.price),
       sale_price: row.sale_price == null ? null : Number(row.sale_price),
     } as DbProductLite;
@@ -311,13 +312,13 @@ export interface DbPopularProduct { id: number; woocommerce_id: number | null; n
 export async function getPopularProducts(limit = 100): Promise<DbPopularProduct[]> {
   const result = await executeWithFallback(async () => {
     const client = getPrismaClient();
-    const rows = await client.product.findMany({
+    const rows = await client.cachedProduct.findMany({
       take: limit,
       where: { status: 'publish' },
-      orderBy: [ { featured: 'desc' }, { total_sales: 'desc' }, { updated_at: 'desc' } ],
+      orderBy: [ { featured: 'desc' }, { total_sales: 'desc' }, { date_modified: 'desc' } ],
       select: { id: true, woocommerce_id: true, name: true, sku: true, price: true }
     });
-    return rows.map(r => ({
+    return rows.map((r: any) => ({
       id: r.id,
       woocommerce_id: r.woocommerce_id ?? null,
       name: r.name,
@@ -326,7 +327,7 @@ export async function getPopularProducts(limit = 100): Promise<DbPopularProduct[
     })) as DbPopularProduct[];
   }, async () => {
     // Fallback: return some mock popular products
-    console.warn('Using fallback popular products');
+    logger.warn('Using fallback popular products');
   const mockProducts: DbPopularProduct[] = Array.from({ length: Math.min(limit, 20) }, (_, i) => ({
       id: i + 1,
       woocommerce_id: i + 1,

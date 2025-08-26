@@ -259,7 +259,7 @@ export class WPGraphQLClient {
           return JSON.parse(cached);
         }
       } catch (error) {
-        console.warn('Redis cache read error:', error);
+        logger.warn('Redis cache read error:', { error: (error as Error).message });
       }
     }
 
@@ -282,7 +282,7 @@ export class WPGraphQLClient {
           JSON.stringify(response)
         );
       } catch (error) {
-        console.warn('Redis cache write error:', error);
+        logger.warn('Redis cache write error:', { error: (error as Error).message });
       }
     }
 
@@ -448,7 +448,7 @@ export class WPGraphQLClient {
         const product = await this.getProduct(id, useCache, cacheTTL);
         return { id, product };
       } catch (error) {
-        console.warn(`Failed to fetch product ${id}:`, error);
+        logger.warn(`Failed to fetch product ${id}:`, { error: (error as Error).message });
         return { id, product: null };
       }
     });

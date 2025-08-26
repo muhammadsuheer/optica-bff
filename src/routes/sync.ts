@@ -65,7 +65,7 @@ syncRoutes.post('/full', async (c) => {
       data: { options }
     });
   } catch (error) {
-    logger.error('Failed to start full sync:', error);
+    logger.error('Failed to start full sync:', error as Error);
     return c.json({
       status: 'error',
       message: 'Failed to start full sync'
@@ -103,7 +103,7 @@ syncRoutes.post('/incremental', async (c) => {
       data: { since: since?.toISOString() }
     });
   } catch (error) {
-    logger.error('Failed to start incremental sync:', error);
+    logger.error('Failed to start incremental sync:', error as Error);
     return c.json({
       status: 'error',
       message: 'Failed to start incremental sync'
@@ -131,7 +131,7 @@ syncRoutes.post('/products', async (c) => {
       data: result
     });
   } catch (error) {
-    logger.error('Failed to sync products:', error);
+    logger.error('Failed to sync products:', error as Error);
     return c.json({
       status: 'error',
       message: 'Failed to sync products'
@@ -157,7 +157,7 @@ syncRoutes.post('/categories', async (c) => {
       data: result
     });
   } catch (error) {
-    logger.error('Failed to sync categories:', error);
+    logger.error('Failed to sync categories:', error as Error);
     return c.json({
       status: 'error',
       message: 'Failed to sync categories'
@@ -184,7 +184,7 @@ syncRoutes.post('/orders', async (c) => {
       data: result
     });
   } catch (error) {
-    logger.error('Failed to sync orders:', error);
+    logger.error('Failed to sync orders:', error as Error);
     return c.json({
       status: 'error',
       message: 'Failed to sync orders'
@@ -210,7 +210,7 @@ syncRoutes.post('/customers', async (c) => {
       data: result
     });
   } catch (error) {
-    logger.error('Failed to sync customers:', error);
+    logger.error('Failed to sync customers:', error as Error);
     return c.json({
       status: 'error',
       message: 'Failed to sync customers'
@@ -218,109 +218,7 @@ syncRoutes.post('/customers', async (c) => {
   }
 });
 
-/**
- * POST /sync/products - Sync products specifically
- */
-syncRoutes.post('/products', async (c) => {
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const options = {
-      batchSize: body.batchSize || 50,
-      parallelBatches: body.parallelBatches || 3,
-      force: body.force || false,
-      includeCustomFields: body.includeCustomFields !== false
-    };
 
-    if (syncService.isSyncRunning()) {
-      return c.json({
-        status: 'error',
-        message: 'Sync already in progress'
-      }, 409);
-    }
-
-    // Start products sync
-    const result = await syncService.syncProducts(options);
-    
-    return c.json({
-      status: 'success',
-      message: 'Products sync completed',
-      data: result
-    });
-  } catch (error) {
-    logger.error('Failed to sync products:', error);
-    return c.json({
-      status: 'error',
-      message: 'Failed to sync products'
-    }, 500);
-  }
-});
-
-/**
- * POST /sync/categories - Sync categories specifically
- */
-syncRoutes.post('/categories', async (c) => {
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const options = {
-      batchSize: body.batchSize || 100
-    };
-
-    if (syncService.isSyncRunning()) {
-      return c.json({
-        status: 'error',
-        message: 'Sync already in progress'
-      }, 409);
-    }
-
-    const result = await syncService.syncCategories(options);
-    
-    return c.json({
-      status: 'success',
-      message: 'Categories sync completed',
-      data: result
-    });
-  } catch (error) {
-    logger.error('Failed to sync categories:', error);
-    return c.json({
-      status: 'error',
-      message: 'Failed to sync categories'
-    }, 500);
-  }
-});
-
-/**
- * POST /sync/orders - Sync orders specifically
- */
-syncRoutes.post('/orders', async (c) => {
-  try {
-    const body = await c.req.json().catch(() => ({}));
-    const options = {
-      batchSize: body.batchSize || 50,
-      since: body.since ? new Date(body.since) : undefined
-    };
-
-    if (syncService.isSyncRunning()) {
-      return c.json({
-        status: 'error',
-        message: 'Sync already in progress'
-      }, 409);
-    }
-
-    const result = await syncService.syncOrders(options);
-    
-    return c.json({
-      status: 'success',
-      message: 'Orders sync completed',
-      data: result
-    });
-  } catch (error) {
-    logger.error('Failed to sync orders:', error);
-    return c.json({
-      status: 'error',
-      message: 'Failed to sync orders'
-    }, 500);
-  }
-});
 
 /**
  * POST /sync/initial - Initial full sync (replaces sync:initial CLI)
@@ -360,7 +258,7 @@ syncRoutes.post('/initial', async (c) => {
       data: { options }
     });
   } catch (error) {
-    logger.error('Failed to start initial sync:', error);
+    logger.error('Failed to start initial sync:', error as Error);
     return c.json({
       status: 'error',
       message: 'Failed to start initial sync'

@@ -12,6 +12,8 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { validateRequest } from '../middleware/validateRequest.js';
+import { WooRestApiClient } from '../services/wooRestApiClient.js';
+import { logger } from '../utils/logger.js';
 import { CacheService } from '../services/cacheService.js';
 import type { ApiResponse } from '../types/index.js';
 
@@ -257,6 +259,7 @@ const mockPaymentGateways: PaymentGateway[] = [
  */
 export function createWooCommerceRoutes(cacheService: CacheService): Hono {
   const woo = new Hono();
+  const wooClient = new WooRestApiClient();
 
   /**
    * GET /woocommerce/coupons - Fetch WooCommerce coupons
@@ -296,30 +299,20 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
           return c.json(response);
         }
 
-        // Filter coupons based on query parameters
-        let filteredCoupons = [...mockCoupons];
-        
-        if (validatedQuery.code) {
-          filteredCoupons = filteredCoupons.filter(c => 
-            c.code.toLowerCase().includes(validatedQuery.code!.toLowerCase())
-          );
-        }
-        
-        if (validatedQuery.status) {
-          filteredCoupons = filteredCoupons.filter(c => c.status === validatedQuery.status);
-        }
-        
-        if (validatedQuery.type) {
-          filteredCoupons = filteredCoupons.filter(c => c.type === validatedQuery.type);
-        }
+        // Live Woo REST: fetch coupons
+        const params: Record<string, string> = {
+          page: String(validatedQuery.page),
+          per_page: String(validatedQuery.per_page),
+        };
+        if (validatedQuery.code) params.search = validatedQuery.code;
+        if (validatedQuery.status) params.status = validatedQuery.status;
+        if (validatedQuery.type) params.discount_type = validatedQuery.type;
 
-        // Pagination
-        const total = filteredCoupons.length;
-        const startIndex = (validatedQuery.page - 1) * validatedQuery.per_page;
-        const paginatedCoupons = filteredCoupons.slice(startIndex, startIndex + validatedQuery.per_page);
+        const coupons = await wooClient.get<any[]>('coupons', params);
+        const total = coupons.length; // Optionally parse headers for X-WP-Total
 
         // Cache result for 5 minutes
-        await cacheService.set(cacheKey, { coupons: paginatedCoupons, total }, 300);
+        await cacheService.set(cacheKey, { coupons, total }, 300);
 
         const responseTime = Date.now() - startTime;
         routeStats.couponsList.avgTime = (routeStats.couponsList.avgTime + responseTime) / 2;
@@ -330,20 +323,20 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         
         const response: ApiResponse<Coupon[]> = {
           success: true,
-          data: paginatedCoupons,
+          data: coupons as any,
           meta: {
             total,
             page: validatedQuery.page,
             perPage: validatedQuery.per_page,
-            totalPages: Math.ceil(total / validatedQuery.per_page),
+            totalPages: Math.ceil(total / Math.max(1, validatedQuery.per_page)),
           },
         };
         
         return c.json(response);
 
       } catch (error) {
-        routeStats.couponsList.errors++;
-        console.error('WooCommerce coupons list route error:', error);
+  routeStats.couponsList.errors++;
+  logger.error('WooCommerce coupons list route error:', error as Error);
         
         const response: ApiResponse<Coupon[]> = {
           success: false,
@@ -375,11 +368,10 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         const body = await c.req.json();
         const data = validateCouponSchema.parse(body);
         
-        const coupon = mockCoupons.find(c => 
-          c.code.toLowerCase() === data.code.toLowerCase() && c.status === 'active'
-        );
+  const found = await wooClient.get<any[]>('coupons', { search: data.code, per_page: '1' });
+  const coupon = Array.isArray(found) && found.length ? found[0] : null;
         
-        if (!coupon) {
+  if (!coupon) {
           const response: ApiResponse<{ valid: boolean, reason?: string }> = {
             success: true,
             data: {
@@ -405,7 +397,7 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         }
 
         // Check usage limit
-        if (coupon.usage_limit && coupon.usage_count >= coupon.usage_limit) {
+  if (coupon.usage_limit && coupon.usage_count >= coupon.usage_limit) {
           const response: ApiResponse<{ valid: boolean, reason?: string }> = {
             success: true,
             data: {
@@ -418,7 +410,7 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         }
 
         // Check minimum amount
-        if (coupon.minimum_amount && data.cart_total < coupon.minimum_amount) {
+  if (coupon.minimum_amount && data.cart_total < Number(coupon.minimum_amount)) {
           const response: ApiResponse<{ valid: boolean, reason?: string }> = {
             success: true,
             data: {
@@ -431,7 +423,7 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         }
 
         // Check maximum amount
-        if (coupon.maximum_amount && data.cart_total > coupon.maximum_amount) {
+  if (coupon.maximum_amount && data.cart_total > Number(coupon.maximum_amount)) {
           const response: ApiResponse<{ valid: boolean, reason?: string }> = {
             success: true,
             data: {
@@ -444,8 +436,8 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         }
 
         // Check email restrictions
-        if (coupon.email_restrictions.length > 0 && data.customer_email) {
-          const emailMatches = coupon.email_restrictions.some(email => 
+  if (Array.isArray(coupon.email_restrictions) && coupon.email_restrictions.length > 0 && data.customer_email) {
+          const emailMatches = coupon.email_restrictions.some((email: string) => 
             data.customer_email!.toLowerCase() === email.toLowerCase()
           );
           if (!emailMatches) {
@@ -464,13 +456,13 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         // Calculate discount
         let discountAmount = 0;
         
-        if (coupon.type === 'percent') {
-          discountAmount = (data.cart_total * coupon.amount) / 100;
-        } else if (coupon.type === 'fixed_cart') {
-          discountAmount = Math.min(coupon.amount, data.cart_total);
-        } else if (coupon.type === 'fixed_product') {
+        if (coupon.discount_type === 'percent') {
+          discountAmount = (data.cart_total * Number(coupon.amount)) / 100;
+        } else if (coupon.discount_type === 'fixed_cart') {
+          discountAmount = Math.min(Number(coupon.amount), data.cart_total);
+        } else if (coupon.discount_type === 'fixed_product') {
           // Simplified calculation for product-specific discount
-          discountAmount = coupon.amount;
+          discountAmount = Number(coupon.amount);
         }
 
         const responseTime = Date.now() - startTime;
@@ -494,8 +486,8 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         return c.json(response);
 
       } catch (error) {
-        routeStats.couponValidate.errors++;
-        console.error('Coupon validate route error:', error);
+  routeStats.couponValidate.errors++;
+  logger.error('Coupon validate route error:', error as Error);
         
         const response: ApiResponse<{ valid: boolean, reason?: string }> = {
           success: false,
@@ -538,8 +530,19 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
           });
         }
 
-        // Cache for 30 minutes
-        await cacheService.set(cacheKey, mockShippingZones, 1800);
+        // Live Woo REST: zones, methods, locations -> cache for 30 minutes
+        const zones = await wooClient.get<any[]>('shipping/zones');
+        const details: any[] = [];
+        for (const z of zones) {
+          try {
+            const methods = await wooClient.get<any[]>(`shipping/zones/${z.id}/methods`);
+            const locations = await wooClient.get<any[]>(`shipping/zones/${z.id}/locations`);
+            details.push({ ...z, methods, locations });
+          } catch {
+            details.push({ ...z, methods: [], locations: [] });
+          }
+        }
+        await cacheService.set(cacheKey, details as any, 1800);
 
         const responseTime = Date.now() - startTime;
         routeStats.shippingZones.avgTime = (routeStats.shippingZones.avgTime + responseTime) / 2;
@@ -550,12 +553,12 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         
         return c.json({
           success: true,
-          data: mockShippingZones,
+          data: (await cacheService.get<ShippingZone[]>(cacheKey))!,
         });
 
       } catch (error) {
-        routeStats.shippingZones.errors++;
-        console.error('Shipping zones route error:', error);
+  routeStats.shippingZones.errors++;
+  logger.error('Shipping zones route error:', error as Error);
         
         const response: ApiResponse<ShippingZone[]> = {
           success: false,
@@ -587,8 +590,9 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         const body = await c.req.json();
         const data = shippingCalculateSchema.parse(body);
         
-        // Find matching shipping zone
-        const matchingZone = mockShippingZones.find(zone =>
+  // Find matching shipping zone from cached data
+  const zones = (await cacheService.get<ShippingZone[]>('woo:shipping:zones')) || [];
+  const matchingZone = zones.find(zone =>
           zone.locations.some(location => {
             if (location.type === 'country') {
               return location.code === data.country;
@@ -631,8 +635,8 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         return c.json(response);
 
       } catch (error) {
-        routeStats.shippingCalculate.errors++;
-        console.error('Shipping calculate route error:', error);
+  routeStats.shippingCalculate.errors++;
+  logger.error('Shipping calculate route error:', error as Error);
         
         const response: ApiResponse<{ methods: any[] }> = {
           success: false,
@@ -675,8 +679,9 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
           });
         }
 
-        // Cache for 1 hour
-        await cacheService.set(cacheKey, mockTaxRates, 3600);
+  // Live Woo REST tax rates -> 1 hour cache
+  const rates = await wooClient.get<any[]>('taxes');
+  await cacheService.set(cacheKey, rates as any, 3600);
 
         const responseTime = Date.now() - startTime;
         routeStats.taxRates.avgTime = (routeStats.taxRates.avgTime + responseTime) / 2;
@@ -687,12 +692,12 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         
         return c.json({
           success: true,
-          data: mockTaxRates,
+          data: (await cacheService.get<TaxRate[]>(cacheKey))!,
         });
 
       } catch (error) {
-        routeStats.taxRates.errors++;
-        console.error('Tax rates route error:', error);
+  routeStats.taxRates.errors++;
+  logger.error('Tax rates route error:', error as Error);
         
         const response: ApiResponse<TaxRate[]> = {
           success: false,
@@ -750,8 +755,9 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
           shipping_cost: z.number().min(0).optional(),
         }).parse(body);
         
-        // Find applicable tax rates
-        const applicableTaxRates = mockTaxRates.filter(rate => {
+  // Find applicable tax rates from cached live rates (fallback empty)
+  const allRates = (await cacheService.get<TaxRate[]>('woo:tax:rates')) || [];
+  const applicableTaxRates = allRates.filter(rate => {
           if (rate.country && rate.country !== data.country) return false;
           if (rate.state && data.state && rate.state !== data.state) return false;
           return true;
@@ -813,8 +819,8 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         return c.json(response);
 
       } catch (error) {
-        routeStats.taxCalculate.errors++;
-        console.error('Tax calculate route error:', error);
+  routeStats.taxCalculate.errors++;
+  logger.error('Tax calculate route error:', error as Error);
         
         const response: ApiResponse<any> = {
           success: false,
@@ -857,11 +863,10 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
           });
         }
 
-        // Filter only enabled gateways
-        const enabledGateways = mockPaymentGateways.filter(gateway => gateway.enabled);
-
-        // Cache for 30 minutes
-        await cacheService.set(cacheKey, enabledGateways, 1800);
+  // Live Woo REST payment gateways, filter enabled, cache 30 minutes
+  const gateways = await wooClient.get<any[]>('payment_gateways');
+  const enabledGateways = gateways.filter(g => g.enabled);
+  await cacheService.set(cacheKey, enabledGateways as any, 1800);
 
         const responseTime = Date.now() - startTime;
         routeStats.paymentGateways.avgTime = (routeStats.paymentGateways.avgTime + responseTime) / 2;
@@ -876,8 +881,8 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         });
 
       } catch (error) {
-        routeStats.paymentGateways.errors++;
-        console.error('Payment gateways route error:', error);
+  routeStats.paymentGateways.errors++;
+  logger.error('Payment gateways route error:', error as Error);
         
         const response: ApiResponse<PaymentGateway[]> = {
           success: false,
@@ -905,23 +910,7 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
       routeStats.webhookEvents.requests++;
       
       try {
-        const cacheKey = 'woo:webhooks';
-        
-        // Mock webhook events data
-        const mockWebhooks: WebhookEvent[] = [
-          {
-            id: 1,
-            name: 'Order Created',
-            status: 'active',
-            topic: 'order.created',
-            resource: 'order',
-            event: 'created',
-            hooks: 1,
-            delivery_url: 'https://example.com/webhooks/order-created',
-            date_created: '2024-01-01T00:00:00Z',
-            date_modified: '2024-01-01T00:00:00Z',
-          },
-        ];
+  const cacheKey = 'woo:webhooks';
 
         // Try cache first
         const cached = await cacheService.get<WebhookEvent[]>(cacheKey);
@@ -936,8 +925,9 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
           });
         }
 
-        // Cache for 15 minutes
-        await cacheService.set(cacheKey, mockWebhooks, 900);
+  // Live Woo REST webhooks and cache 15 minutes
+  const webhooks = await wooClient.get<any[]>('webhooks');
+  await cacheService.set(cacheKey, webhooks as any, 900);
 
         const responseTime = Date.now() - startTime;
         routeStats.webhookEvents.avgTime = (routeStats.webhookEvents.avgTime + responseTime) / 2;
@@ -948,12 +938,12 @@ export function createWooCommerceRoutes(cacheService: CacheService): Hono {
         
         return c.json({
           success: true,
-          data: mockWebhooks,
+          data: webhooks as any,
         });
 
       } catch (error) {
-        routeStats.webhookEvents.errors++;
-        console.error('Webhook events route error:', error);
+  routeStats.webhookEvents.errors++;
+  logger.error('Webhook events route error:', error as Error);
         
         const response: ApiResponse<WebhookEvent[]> = {
           success: false,

@@ -5,6 +5,7 @@
 
 import type { ApiProduct, WooCategory } from '../types/index.js';
 import { LRUCache } from 'lru-cache';
+import { logger } from '../utils/logger.js';
 import { env } from '../config/env.js';
 
 interface WooCommerceConfig {
@@ -170,7 +171,7 @@ class WooCommerceService {
   const product = await this.makeRequest(url, options);
   return this.isApiProduct(product) ? product : null;
     } catch (error) {
-      console.error(`Failed to fetch product ${id}:`, error);
+      logger.error(`Failed to fetch product ${id}:`, error as Error);
       return null;
     }
   }
@@ -185,7 +186,7 @@ class WooCommerceService {
   if (!Array.isArray(products)) return [];
   return products.filter(p => this.isApiProduct(p));
     } catch (error) {
-      console.error('Failed to fetch products:', error);
+      logger.error('Failed to fetch products:', error as Error);
       return [];
     }
   }
@@ -265,7 +266,7 @@ class WooCommerceService {
   async warmupCache(productIds: number[]): Promise<void> {
     const promises = productIds.map(id => 
       this.getProduct(id).catch(err => 
-        console.warn(`Failed to warm up product ${id}:`, err)
+        logger.warn(`Failed to warm up product ${id}:`, err as Error)
       )
     );
     

@@ -5,6 +5,7 @@ import { WooRestApiClient } from '../services/wooRestApiClient.js';
 import { WooStoreApiClient } from '../services/wooStoreApiClient.js';
 import { CacheService } from '../services/cacheService.js';
 import type { HealthCheck, ApiResponse } from '../types/index.js';
+import { logger } from '../utils/logger.js';
 
 // Enhanced caching with multiple TTL levels
 let healthCache = {
@@ -96,8 +97,8 @@ export function createHealthRoutes(cacheService: CacheService): Hono {
       
       return c.json(response, 200);
     } catch (error) {
-      healthStats.liveness.errors++;
-      console.error('Liveness check error:', error);
+  healthStats.liveness.errors++;
+  logger.error('Liveness check error:', error as Error);
 
       const healthCheck: HealthCheck = {
         status: 'unhealthy',
@@ -247,8 +248,8 @@ export function createHealthRoutes(cacheService: CacheService): Hono {
 
       return c.json(response, allHealthy ? 200 : 503);
     } catch (error) {
-      healthStats.readiness.errors++;
-      console.error('Readiness check error:', error);
+  healthStats.readiness.errors++;
+  logger.error('Readiness check error:', error as Error);
 
       const healthCheck: HealthCheck = {
         status: 'unhealthy',
@@ -394,8 +395,8 @@ export function createHealthRoutes(cacheService: CacheService): Hono {
 
       return c.json(response, allHealthy ? 200 : 503);
     } catch (error) {
-      healthStats.full.errors++;
-      console.error('Full health check error:', error);
+  healthStats.full.errors++;
+  logger.error('Full health check error:', error as Error);
 
       const response: ApiResponse<any> = {
         success: false,

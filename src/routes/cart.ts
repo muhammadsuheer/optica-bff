@@ -16,6 +16,7 @@ import { CacheService } from '../services/cacheService.js';
 import { WooRestApiClient } from '../services/wooRestApiClient.js';
 import type { ApiResponse, CartItem, Cart, CartCoupon } from '../types/index.js';
 import { PreAllocatedErrors as Errors } from '../types/index.js';
+import { logger } from '../utils/logger.js';
 
 // Pre-compiled validation schemas
 const addToCartSchema = z.object({
@@ -137,8 +138,8 @@ export function createCartRoutes(cacheService: CacheService): Hono {
       });
 
     } catch (error) {
-      cartStats.add.errors++;
-      console.error('Add to cart error:', error);
+  cartStats.add.errors++;
+  logger.error('Add to cart error:', error as Error);
       
       if (error instanceof Error && error.name === 'ZodError') {
         return c.json({
@@ -186,8 +187,8 @@ export function createCartRoutes(cacheService: CacheService): Hono {
       });
 
     } catch (error) {
-      cartStats.get.errors++;
-      console.error('Get cart error:', error);
+  cartStats.get.errors++;
+  logger.error('Get cart error:', error as Error);
       
       return c.json({
         success: false,
@@ -254,8 +255,8 @@ export function createCartRoutes(cacheService: CacheService): Hono {
       });
 
     } catch (error) {
-      cartStats.update.errors++;
-      console.error('Update cart error:', error);
+  cartStats.update.errors++;
+  logger.error('Update cart error:', error as Error);
       
       return c.json({
         success: false,
@@ -310,8 +311,8 @@ export function createCartRoutes(cacheService: CacheService): Hono {
       });
 
     } catch (error) {
-      cartStats.remove.errors++;
-      console.error('Remove cart item error:', error);
+  cartStats.remove.errors++;
+  logger.error('Remove cart item error:', error as Error);
       
       return c.json({
         success: false,
@@ -359,8 +360,8 @@ export function createCartRoutes(cacheService: CacheService): Hono {
       });
 
     } catch (error) {
-      cartStats.clear.errors++;
-      console.error('Clear cart error:', error);
+  cartStats.clear.errors++;
+  logger.error('Clear cart error:', error as Error);
       
       return c.json({
         success: false,
@@ -430,8 +431,8 @@ export function createCartRoutes(cacheService: CacheService): Hono {
       });
 
     } catch (error) {
-      cartStats.apply_coupon.errors++;
-      console.error('Apply coupon error:', error);
+  cartStats.apply_coupon.errors++;
+  logger.error('Apply coupon error:', error as Error);
       
       return c.json({
         success: false,
@@ -486,8 +487,8 @@ export function createCartRoutes(cacheService: CacheService): Hono {
       });
 
     } catch (error) {
-      cartStats.remove_coupon.errors++;
-      console.error('Remove coupon error:', error);
+  cartStats.remove_coupon.errors++;
+  logger.error('Remove coupon error:', error as Error);
       
       return c.json({
         success: false,
