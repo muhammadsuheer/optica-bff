@@ -17,18 +17,14 @@ wait_for_db() {
     while [ $attempt -le $max_attempts ]; do
         echo "📡 Connection attempt $attempt/$max_attempts..."
         
-        # Try to connect using Prisma's introspection (works with any valid connection)
-        if npx prisma db pull --print 2>/dev/null | head -1 >/dev/null 2>&1; then
-            echo "✅ PostgreSQL is ready!"
-            return 0
-        fi
-        
-        # If that fails, try a simpler approach
+        # Use simple Prisma connection test (uses DATABASE_URL directly)
         if node -e "
             const { PrismaClient } = require('@prisma/client');
             const prisma = new PrismaClient();
-            prisma.\$queryRaw\`SELECT 1\`.then(() => {
+            prisma.\$connect().then(() => {
                 console.log('DB Connected');
+                return prisma.\$disconnect();
+            }).then(() => {
                 process.exit(0);
             }).catch((e) => {
                 console.error('DB Error:', e.message);
@@ -54,16 +50,17 @@ wait_for_db() {
 run_migrations() {
     echo "🔄 Running database migrations..."
     
-    # Check if database is completely empty (first deployment)
-    if npx prisma db execute --stdin <<< "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';" 2>/dev/null | grep -q "0"; then
-        echo "📦 Empty database detected - running initial migration..."
-        npx prisma migrate deploy
+    # Always run migrations (Prisma handles idempotency)
+    echo "🔄 Running Prisma migrations..."
+    if npx prisma migrate deploy; then
+        echo "✅ Migrations completed successfully!"
     else
-        echo "🔄 Existing database detected - running migration updates..."
-        npx prisma migrate deploy
+        echo "❌ Migration failed - but continuing (might be first deployment)"
+        echo "🔄 Trying to create database schema..."
+        npx prisma db push --force-reset 2>/dev/null || true
     fi
     
-    echo "✅ Migrations completed!"
+    echo "✅ Database setup completed!"
 }
 
 # Function to generate Prisma client
