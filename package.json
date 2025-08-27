@@ -8,9 +8,10 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "bash scripts/start-production.sh",
+    "start": "bash scripts/start-production-enterprise.sh",
     "start:nomigrate": "node dist/index.js",
-    "migrate": "prisma migrate deploy",
+    "migrate": "bash scripts/migrate-database.sh",
+    "migrate:deploy": "prisma migrate deploy",
     "postinstall": "prisma generate",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix",

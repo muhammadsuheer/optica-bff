@@ -115,41 +115,52 @@ collectDefaultMetrics({ prefix: 'optica_bff_' });
 
 // Initialize all services in parallel for faster startup
 // ---------------------------------------------------------------------------
-// 2. Parallel service initialization (DB + Cache + Rate Limiter)
-//    Adds defensive timeouts so the process does not hang waiting on Redis.
+// 2. Enterprise service initialization with graceful degradation
+//    Services start independently and handle failures gracefully
 // ---------------------------------------------------------------------------
 const initializeServices = async () => {
-  logger.info('Initializing core services in parallel');
+  logger.info('Initializing core services with graceful degradation');
   const startTime = performance.now();
   
   try {
-    // Import database service
-    const { initializeDatabaseService } = await import('./services/databaseService.js');
+    // Initialize cache service (always works with fallback to memory)
+    const cacheService = new CacheService();
+    const cacheReady = await cacheService.waitForReady(3000);
+    if (cacheReady) {
+      logger.info('Redis connected successfully');
+    } else {
+      logger.warn('Redis not ready – using in‑memory cache (degraded mode)');
+    }
     
-    // Parallel service initialization (saves 100-200ms startup time)
-    const [cacheService, databaseHealthy] = await Promise.all([
-      (async () => {
-        const cache = new CacheService();
-        const ready = await cache.waitForReady(5000);
-        if (ready) {
-          logger.info('Redis connected successfully');
-        } else {
-          logger.warn('Redis not ready – using in‑memory cache');
-        }
-        return cache;
-      })(),
-      initializeDatabaseService()
-    ]);
-    
-    // Initialize rate limiter with the cache service
+    // Initialize rate limiter
     const globalRateLimiter = createGlobalRateLimiter(cacheService);
     
+    // Initialize database service with graceful degradation
+    let databaseHealthy = false;
+    try {
+      const { initializeDatabaseService } = await import('./services/databaseService.js');
+      databaseHealthy = await initializeDatabaseService();
+      if (databaseHealthy) {
+        logger.info('Database connected successfully');
+      } else {
+        logger.warn('Database not ready – some features may be limited');
+      }
+    } catch (error) {
+      logger.warn('Database initialization failed – running in degraded mode', { error: (error as Error).message });
+      databaseHealthy = false;
+    }
+    
     const initTime = performance.now() - startTime;
-    logger.info('Services initialized', { duration_ms: +initTime.toFixed(2), databaseHealthy });
+    logger.info('Services initialized', { 
+      duration_ms: +initTime.toFixed(2), 
+      databaseHealthy, 
+      cacheReady,
+      mode: databaseHealthy ? 'full' : 'degraded'
+    });
     
     return { cacheService, globalRateLimiter, databaseHealthy };
   } catch (error) {
-    logger.error('Service initialization failed', error as Error);
+    logger.error('Critical service initialization failed', error as Error);
     throw error;
   }
 };

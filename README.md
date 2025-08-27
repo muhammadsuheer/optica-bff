@@ -41,8 +41,10 @@ npm ci
 cp .env.example .env
 # Edit .env with your configuration
 
-# Database setup
-npx prisma migrate deploy
+# Database setup (separate from app deployment)
+npm run migrate
+
+# Generate Prisma client
 npx prisma generate
 
 # Start development
@@ -313,24 +315,27 @@ docker build -t optia-bff .
 docker run --env-file .env -p 3000:3000 optia-bff
 ```
 
-### ☁️ Coolify Deployment
+### ☁️ Coolify Deployment (Enterprise)
 
 1. **Create New Service** in Coolify
 2. **Set Build Configuration**:
    ```yaml
    Build Command: npm run build
-   Start Command: npm start
+   Start Command: npm start  # Uses enterprise deployment
    Port: 3000
    Health Check: /health/live
    ```
 3. **Configure Environment Variables** (see Configuration section)
-4. **Deploy** - Automatic migrations run on startup
+4. **Deploy** - App starts immediately (no database blocking)
 
-### 🔄 Database Migrations
+### 🔄 Enterprise Database Migration Pipeline
 
 ```bash
-# Production deployment (automatic)
-npm start  # Runs migrations then starts server
+# Separate migration deployment (recommended)
+npm run migrate  # Run in CI/CD or manually
+
+# Legacy approach (not recommended for production)
+npm run migrate:deploy  # Direct Prisma migration
 
 # Manual migration
 npx prisma migrate deploy

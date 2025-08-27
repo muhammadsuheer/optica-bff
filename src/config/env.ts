@@ -48,12 +48,8 @@ const configSchemas: Record<ConfigCategory, Record<string, any>> = {
   
   [ConfigCategory.DATABASE]: {
     DATABASE_URL: str(),
-    DB_HOST: str({ default: 'localhost' }),
-    DB_PORT: num({ default: 5432 }),
-    DB_NAME: str({ default: 'optica_bff' }),
-    DB_USER: str({ default: 'postgres' }),
-    DB_PASSWORD: str(),
-  PGPOOLSIZE: num({ default: 10 }),
+    PGPOOLSIZE: num({ default: 10 }),
+    // Removed individual DB config - Supabase uses connection string only
   },
   
   [ConfigCategory.SECURITY]: {
