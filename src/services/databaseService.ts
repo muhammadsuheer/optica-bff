@@ -52,8 +52,7 @@ export function initializePrisma(): PrismaClient {
           url: envConfig.database?.DATABASE_URL || process.env.DATABASE_URL,
         },
       },
-      // Optimize for Supabase connection limits
-      connectionLimit: envConfig.database?.PGPOOLSIZE || 10,
+
     });
 
     // Error event handling
