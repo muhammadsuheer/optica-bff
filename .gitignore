@@ -1,4 +1,4 @@
-# Development tools
+# dev
 .yarn/
 !.yarn/releases
 .vscode/*
@@ -8,22 +8,15 @@
 .idea/usage.statistics.xml
 .idea/shelf
 
-# Dependencies
+# deps
 node_modules/
 
-# Build output (generated in CI/CD)
-dist/
-build/
-*.tsbuildinfo
-
-# Environment variables
+# env
 .env
-.env.*
-!.env.example
+.env.production
 
-# Logs
+# logs
 logs/
-coverage/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -31,42 +24,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Runtime data
-pids/
-*.pid
-*.seed
-*.pid.lock
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Cache directories
-.npm/
-.eslintcache
-.nyc_output/
-.cache/
-.parcel-cache/
-
-# OS generated files
+# misc
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# Temporary files
-*.tmp
-*.temp
-*.swp
-*.swo
-*~
-
-# Prisma generated files
-/src/generated/prisma
-
-# Production deployment files
-docker-compose.override.yml
+.vercel
