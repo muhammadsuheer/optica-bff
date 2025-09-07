@@ -1,12 +1,68 @@
 {
-  "name": "hono",
+  "name": "optia-bff",
+  "version": "1.0.0",
+  "description": "A high-performance, production-ready Backend for Frontend (BFF) built with Hono.js and Supabase that connects WordPress WooCommerce with modern frontend applications.",
   "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
+    "type-check": "tsc --noEmit",
+    "vercel-build": "npm run build"
+  },
+  "keywords": [
+    "hono",
+    "bff",
+    "backend-for-frontend",
+    "woocommerce",
+    "supabase",
+    "ecommerce",
+    "api",
+    "edge-functions",
+    "vercel"
+  ],
+  "author": "Optia Development Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/muhammadsuheer/optia-bff.git"
+  },
+  "bugs": {
+    "url": "https://github.com/muhammadsuheer/optia-bff/issues"
+  },
+  "homepage": "https://github.com/muhammadsuheer/optia-bff#readme",
   "dependencies": {
-    "hono": "^4.9.6"
+    "@hono/node-server": "^1.19.1",
+    "@hono/zod-validator": "^0.7.2",
+    "@supabase/supabase-js": "^2.57.2",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@woocommerce/woocommerce-rest-api": "^1.0.2",
+    "crypto-js": "^4.2.0",
+    "hono": "^4.9.6",
+    "isomorphic-dompurify": "^2.26.0",
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/crypto-js": "^4.2.2",
     "@types/node": "^20.11.17",
+    "@typescript-eslint/eslint-plugin": "^8.42.0",
+    "@typescript-eslint/parser": "^8.42.0",
+    "@vitest/ui": "^3.2.4",
+    "eslint": "^9.34.0",
+    "playwright": "^1.55.0",
+    "prettier": "^3.6.2",
     "tsx": "^4.7.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
   }
 }
