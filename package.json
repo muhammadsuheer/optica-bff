@@ -5,18 +5,23 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx --env-file=.env src/app/edge.ts",
+    "dev:working": "tsx --env-file=.env src/app/working.ts",
+    "sync:woo": "node scripts/sync-woocommerce.js",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/app/edge.js",
     "test": "vitest",
-    "test:ui": "vitest --ui",
+    "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "playwright test",
     "lint": "eslint src --ext .ts,.tsx",
     "lint:fix": "eslint src --ext .ts,.tsx --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,json}\"",
     "type-check": "tsc --noEmit",
-    "vercel-build": "npm run build"
+    "verify:edge": "node scripts/edge-compliance-scan.js",
+    "vercel-build": "npm run build",
+    "db:generate-types": "supabase gen types typescript --project-id YOUR_PROJECT_ID > src/types/database.ts",
+    "postinstall": "npm run type-check"
   },
   "keywords": [
     "hono",
@@ -40,20 +45,18 @@
   },
   "homepage": "https://github.com/muhammadsuheer/optia-bff#readme",
   "dependencies": {
-    "@hono/node-server": "^1.19.1",
     "@hono/zod-validator": "^0.7.2",
     "@supabase/supabase-js": "^2.57.2",
-    "@types/jsonwebtoken": "^9.0.10",
+    "@upstash/ratelimit": "^0.4.4",
+    "@upstash/redis": "^1.35.3",
     "@woocommerce/woocommerce-rest-api": "^1.0.2",
-    "crypto-js": "^4.2.0",
     "hono": "^4.9.6",
     "isomorphic-dompurify": "^2.26.0",
-    "jsonwebtoken": "^9.0.2",
-    "zod": "^4.1.5"
+    "jose": "^5.2.0",
+    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
-    "@types/crypto-js": "^4.2.2",
     "@types/node": "^20.11.17",
     "@typescript-eslint/eslint-plugin": "^8.42.0",
     "@typescript-eslint/parser": "^8.42.0",
@@ -61,7 +64,7 @@
     "eslint": "^9.34.0",
     "playwright": "^1.55.0",
     "prettier": "^3.6.2",
-    "tsx": "^4.7.1",
+    "tsx": "^4.20.5",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

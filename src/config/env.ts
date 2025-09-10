@@ -1,201 +1,226 @@
+/**
+ * Edge-Compatible Environment Configuration
+ * 
+ * Zod-validated configuration with proper Edge Runtime support.
+ * Validates once at cold start and exports frozen config object.
+ * 
+ * IMPORTANT: Never access process.env directly elsewhere in the codebase.
+ * Always import { env } from this module.
+ */
+
 import { z } from 'zod'
 
-// Environment validation schema
+// =======================
+// Environment Schema
+// =======================
+
 const envSchema = z.object({
-  // Node Environment
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
-  PORT: z.string().default('3000').transform(Number).pipe(z.number().min(1000).max(65535)),
+  // Node environment
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
   
-  // WooCommerce API Configuration
-  WC_API_URL: z.string().url('Invalid WooCommerce API URL'),
-  WC_CONSUMER_KEY_READ: z.string().min(1, 'WooCommerce read consumer key is required'),
-  WC_CONSUMER_SECRET_READ: z.string().min(1, 'WooCommerce read consumer secret is required'),
-  WC_CONSUMER_KEY_WRITE: z.string().min(1, 'WooCommerce write consumer key is required'),
-  WC_CONSUMER_SECRET_WRITE: z.string().min(1, 'WooCommerce write consumer secret is required'),
-  WC_WEBHOOK_SECRET: z.string().min(1, 'WooCommerce webhook secret is required'),
+  // WordPress/WooCommerce
+  WP_BASE_URL: z.string().url('Invalid WordPress base URL'),
+  WC_CONSUMER_KEY: z.string().min(1, 'WooCommerce consumer key required'),
+  WC_CONSUMER_SECRET: z.string().min(1, 'WooCommerce consumer secret required'),
+  WC_WEBHOOK_SECRET: z.string().min(1, 'WooCommerce webhook secret required'),
   
-  // Supabase Configuration
+  // Supabase (v2)
   SUPABASE_URL: z.string().url('Invalid Supabase URL'),
-  SUPABASE_ANON_KEY: z.string().min(1, 'Supabase anonymous key is required'),
-  SUPABASE_SERVICE_KEY: z.string().min(1, 'Supabase service key is required'),
-  SUPABASE_JWT_SECRET: z.string().min(1, 'Supabase JWT secret is required'),
+  SUPABASE_ANON_KEY: z.string().min(1, 'Supabase anon key required'),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, 'Supabase service role key required'),
   
-  // Optional Supabase Backup URLs
-  SUPABASE_BACKUP_URL: z.string().url().optional(),
-  SUPABASE_BACKUP_URL_2: z.string().url().optional(),
+  // Upstash Redis/KV
+  UPSTASH_REDIS_REST_URL: z.string().url('Invalid Upstash Redis URL'),
+  UPSTASH_REDIS_REST_TOKEN: z.string().min(1, 'Upstash Redis token required'),
   
-  // BFF API Configuration
-  BFF_API_KEY_FRONTEND: z.string().min(32, 'Frontend API key must be at least 32 characters'),
-  BFF_API_KEY_ADMIN: z.string().min(32, 'Admin API key must be at least 32 characters'),
-  BFF_API_KEY_MOBILE: z.string().min(32, 'Mobile API key must be at least 32 characters'),
+  // Authentication & Security
+  JWT_SECRET: z.string().min(32, 'JWT secret must be at least 32 characters'),
+  API_KEYS: z.string().min(1).transform(str => 
+    str.split(',').map(key => key.trim()).filter(Boolean)
+  ),
   
-  // Cache Configuration
-  CACHE_TTL_PRODUCTS: z.string().default('3600').transform(Number).pipe(z.number().min(60).max(86400)),
-  CACHE_TTL_SEARCH: z.string().default('1800').transform(Number).pipe(z.number().min(60).max(86400)),
-  CACHE_TTL_CATEGORIES: z.string().default('7200').transform(Number).pipe(z.number().min(60).max(86400)),
+  // CORS
+  CORS_ORIGINS: z.string().default('*').transform(str => {
+    if (str === '*') return ['*']
+    return str.split(',').map(origin => origin.trim()).filter(Boolean)
+  }),
+  
+  // Performance & Caching
+  CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
+  CACHE_STAMPEDE_TTL: z.coerce.number().int().positive().default(60),
   
   // Rate Limiting
-  RATE_LIMIT_REQUESTS: z.string().default('1000').transform(Number).pipe(z.number().min(10).max(10000)),
-  RATE_LIMIT_WINDOW: z.string().default('3600').transform(Number).pipe(z.number().min(60).max(86400)),
+  RATE_LIMIT_QPS: z.coerce.number().int().positive().default(10),
+  RATE_LIMIT_WINDOW: z.coerce.number().int().positive().default(60),
   
-  // Frontend URLs for CORS
-  FRONTEND_URL: z.string().url('Invalid frontend URL'),
-  MOBILE_APP_URL: z.string().url().optional(),
-  ADMIN_URL: z.string().url().optional(),
+  // Observability
+  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+  ENABLE_TRACING: z.string().default('true').transform(s => s === 'true'),
+  ENABLE_METRICS: z.string().default('true').transform(s => s === 'true'),
   
-  // Monitoring & Alerting
+  // Optional services
   SENTRY_DSN: z.string().url().optional(),
-  SLACK_WEBHOOK_URL: z.string().url().optional(),
-  LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   
-  // Cost Limits
-  DAILY_COST_LIMIT: z.string().default('100').transform(Number).pipe(z.number().min(1)),
-  MONTHLY_COST_LIMIT: z.string().default('2000').transform(Number).pipe(z.number().min(10)),
-  
-  // CDN Configuration (optional)
-  CDN_PURGE_URL: z.string().url().optional(),
-  CDN_API_KEY: z.string().optional(),
-  
-  // Regional Configuration
-  CF_IPCOUNTRY: z.string().optional(),
-  VERCEL_REGION: z.string().optional(),
+  // Feature flags (for gradual rollouts)
+  ENABLE_OPTIMISTIC_UPDATES: z.string().default('true').transform(s => s === 'true'),
+  ENABLE_CACHE_STAMPEDE_PROTECTION: z.string().default('true').transform(s => s === 'true'),
+  ENABLE_WEBHOOK_VERIFICATION: z.string().default('true').transform(s => s === 'true'),
 })
 
-// Validate and export environment variables
-export const env = envSchema.parse(process.env)
+// =======================
+// Edge-Safe Environment Access
+// =======================
 
-// Export types for TypeScript
-export type Environment = z.infer<typeof envSchema>
+/**
+ * Gets environment variables in an Edge Runtime compatible way.
+ * 
+ * In development: Uses process.env (loaded by tsx --env-file)
+ * In production: Uses Vercel-injected environment variables
+ */
+function getEnvironmentVariables(): Record<string, string | undefined> {
+  // Edge Runtime detection
+  const isEdgeRuntime = typeof EdgeRuntime === 'string'
+  
+  if (isEdgeRuntime) {
+    // In Vercel Edge Runtime, env vars are available on globalThis
+    const globalEnv = globalThis as any
+    
+    // Extract known environment variables
+    const envVars: Record<string, string | undefined> = {}
+    const requiredVars = [
+      'NODE_ENV', 'WP_BASE_URL', 'WC_CONSUMER_KEY', 'WC_CONSUMER_SECRET', 'WC_WEBHOOK_SECRET',
+      'SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY',
+      'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN',
+      'JWT_SECRET', 'API_KEYS', 'CORS_ORIGINS',
+      'CACHE_TTL_SECONDS', 'CACHE_STAMPEDE_TTL',
+      'RATE_LIMIT_QPS', 'RATE_LIMIT_WINDOW',
+      'LOG_LEVEL', 'ENABLE_TRACING', 'ENABLE_METRICS',
+      'SENTRY_DSN', 'ENABLE_OPTIMISTIC_UPDATES', 'ENABLE_CACHE_STAMPEDE_PROTECTION',
+      'ENABLE_WEBHOOK_VERIFICATION'
+    ]
+    
+    for (const varName of requiredVars) {
+      // Try multiple access patterns for Vercel Edge Runtime
+      envVars[varName] = globalEnv[varName] || 
+                        globalEnv.process?.env?.[varName] ||
+                        (globalThis as any)[varName]
+    }
+    
+    return envVars
+  } else {
+    // Development mode - use Node.js process.env
+    return process.env
+  }
+}
 
-// Utility function to check if we're in production
-export const isProduction = () => env.NODE_ENV === 'production'
+// =======================
+// Configuration Parsing & Validation
+// =======================
 
-// Utility function to check if we're in development
-export const isDevelopment = () => env.NODE_ENV === 'development'
-
-// Utility function to check if we're in test mode
-export const isTest = () => env.NODE_ENV === 'test'
-
-// Configuration objects for easier access
-export const config = {
-  app: {
-    name: 'Optia BFF',
-    version: '1.0.0',
-    port: env.PORT,
-    environment: env.NODE_ENV,
-    logLevel: env.LOG_LEVEL,
-  },
-  
-  woocommerce: {
-    apiUrl: env.WC_API_URL,
-    readKeys: {
-      consumerKey: env.WC_CONSUMER_KEY_READ,
-      consumerSecret: env.WC_CONSUMER_SECRET_READ,
-    },
-    writeKeys: {
-      consumerKey: env.WC_CONSUMER_KEY_WRITE,
-      consumerSecret: env.WC_CONSUMER_SECRET_WRITE,
-    },
-    webhookSecret: env.WC_WEBHOOK_SECRET,
-  },
-  
-  supabase: {
-    url: env.SUPABASE_URL,
-    anonKey: env.SUPABASE_ANON_KEY,
-    serviceKey: env.SUPABASE_SERVICE_KEY,
-    jwtSecret: env.SUPABASE_JWT_SECRET,
-    backupUrls: [env.SUPABASE_BACKUP_URL, env.SUPABASE_BACKUP_URL_2].filter(Boolean),
-  },
-  
-  apiKeys: {
-    frontend: env.BFF_API_KEY_FRONTEND,
-    admin: env.BFF_API_KEY_ADMIN,
-    mobile: env.BFF_API_KEY_MOBILE,
-  },
-  
-  cache: {
-    ttl: {
-      products: env.CACHE_TTL_PRODUCTS,
-      search: env.CACHE_TTL_SEARCH,
-      categories: env.CACHE_TTL_CATEGORIES,
-    },
-  },
-  
-  rateLimit: {
-    requests: env.RATE_LIMIT_REQUESTS,
-    window: env.RATE_LIMIT_WINDOW,
-  },
-  
-  cors: {
-    origins: [
-      env.FRONTEND_URL,
-      env.MOBILE_APP_URL,
-      env.ADMIN_URL,
-      // Add localhost for development
-      ...(isDevelopment() ? ['http://localhost:3000', 'http://localhost:3001'] : []),
-    ].filter(Boolean),
-  },
-  
-  monitoring: {
-    sentryDsn: env.SENTRY_DSN,
-    slackWebhook: env.SLACK_WEBHOOK_URL,
-  },
-  
-  costs: {
-    dailyLimit: env.DAILY_COST_LIMIT,
-    monthlyLimit: env.MONTHLY_COST_LIMIT,
-  },
-  
-  cdn: {
-    purgeUrl: env.CDN_PURGE_URL,
-    apiKey: env.CDN_API_KEY,
-  },
-} as const
-
-// Validation function to ensure all required environment variables are set
-export function validateEnvironment(): { valid: boolean; errors: string[] } {
+/**
+ * Parse and validate environment variables once at module load
+ */
+function createConfig() {
   try {
-    envSchema.parse(process.env)
-    return { valid: true, errors: [] }
+    const rawEnv = getEnvironmentVariables()
+    const validatedEnv = envSchema.parse(rawEnv)
+    
+    return {
+      // Environment
+      NODE_ENV: validatedEnv.NODE_ENV,
+      IS_DEVELOPMENT: validatedEnv.NODE_ENV === 'development',
+      IS_PRODUCTION: validatedEnv.NODE_ENV === 'production',
+      
+      // WordPress/WooCommerce
+      WP_BASE_URL: validatedEnv.WP_BASE_URL,
+      WC_API_URL: `${validatedEnv.WP_BASE_URL}/wp-json/wc/v3`,
+      WC_CONSUMER_KEY: validatedEnv.WC_CONSUMER_KEY,
+      WC_CONSUMER_SECRET: validatedEnv.WC_CONSUMER_SECRET,
+      WC_WEBHOOK_SECRET: validatedEnv.WC_WEBHOOK_SECRET,
+      
+      // Supabase
+      SUPABASE_URL: validatedEnv.SUPABASE_URL,
+      SUPABASE_ANON_KEY: validatedEnv.SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: validatedEnv.SUPABASE_SERVICE_ROLE_KEY,
+      
+      // Upstash
+      UPSTASH_REDIS_REST_URL: validatedEnv.UPSTASH_REDIS_REST_URL,
+      UPSTASH_REDIS_REST_TOKEN: validatedEnv.UPSTASH_REDIS_REST_TOKEN,
+      
+      // Auth
+      JWT_SECRET: validatedEnv.JWT_SECRET,
+      API_KEYS: validatedEnv.API_KEYS,
+      
+      // CORS
+      CORS_ORIGINS: validatedEnv.CORS_ORIGINS,
+      
+      // Caching
+      CACHE_TTL_SECONDS: validatedEnv.CACHE_TTL_SECONDS,
+      CACHE_STAMPEDE_TTL: validatedEnv.CACHE_STAMPEDE_TTL,
+      
+      // Rate Limiting
+      RATE_LIMIT_QPS: validatedEnv.RATE_LIMIT_QPS,
+      RATE_LIMIT_WINDOW: validatedEnv.RATE_LIMIT_WINDOW,
+      
+      // Observability
+      LOG_LEVEL: validatedEnv.LOG_LEVEL,
+      ENABLE_TRACING: validatedEnv.ENABLE_TRACING,
+      ENABLE_METRICS: validatedEnv.ENABLE_METRICS,
+      SENTRY_DSN: validatedEnv.SENTRY_DSN,
+      
+      // Feature Flags
+      ENABLE_OPTIMISTIC_UPDATES: validatedEnv.ENABLE_OPTIMISTIC_UPDATES,
+      ENABLE_CACHE_STAMPEDE_PROTECTION: validatedEnv.ENABLE_CACHE_STAMPEDE_PROTECTION,
+      ENABLE_WEBHOOK_VERIFICATION: validatedEnv.ENABLE_WEBHOOK_VERIFICATION,
+    } as const
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errors = error.issues.map((err: any) => `${err.path.join('.')}: ${err.message}`)
-      return { valid: false, errors }
+      const missingVars = error.issues
+        .filter(issue => issue.code === 'invalid_type' && issue.received === 'undefined')
+        .map(issue => issue.path.join('.'))
+      
+      const invalidVars = error.issues
+        .filter(issue => issue.code !== 'invalid_type' || issue.received !== 'undefined')
+        .map(issue => `${issue.path.join('.')}: ${issue.message}`)
+      
+      let errorMessage = 'Environment validation failed:\n'
+      
+      if (missingVars.length > 0) {
+        errorMessage += `Missing variables: ${missingVars.join(', ')}\n`
+      }
+      
+      if (invalidVars.length > 0) {
+        errorMessage += `Invalid variables: ${invalidVars.join(', ')}\n`
+      }
+      
+      throw new Error(errorMessage)
     }
-    return { valid: false, errors: ['Unknown validation error'] }
+    
+    throw new Error(`Environment configuration error: ${error}`)
   }
 }
 
-// Function to mask sensitive environment variables for logging
-export function getMaskedConfig() {
-  return {
-    ...config,
-    woocommerce: {
-      ...config.woocommerce,
-      readKeys: {
-        consumerKey: maskSecret(config.woocommerce.readKeys.consumerKey),
-        consumerSecret: maskSecret(config.woocommerce.readKeys.consumerSecret),
-      },
-      writeKeys: {
-        consumerKey: maskSecret(config.woocommerce.writeKeys.consumerKey),
-        consumerSecret: maskSecret(config.woocommerce.writeKeys.consumerSecret),
-      },
-      webhookSecret: maskSecret(config.woocommerce.webhookSecret),
-    },
-    supabase: {
-      ...config.supabase,
-      serviceKey: maskSecret(config.supabase.serviceKey),
-      jwtSecret: maskSecret(config.supabase.jwtSecret),
-    },
-    apiKeys: {
-      frontend: maskSecret(config.apiKeys.frontend),
-      admin: maskSecret(config.apiKeys.admin),
-      mobile: maskSecret(config.apiKeys.mobile),
-    },
-  }
-}
+// =======================
+// Export Configuration
+// =======================
 
-function maskSecret(secret: string): string {
-  if (secret.length <= 8) return '***'
-  return secret.substring(0, 4) + '***' + secret.substring(secret.length - 4)
-}
+/**
+ * Frozen configuration object - validated once at module load
+ */
+export const env = Object.freeze(createConfig())
+
+/**
+ * Type definition for the configuration
+ */
+export type Env = typeof env
+
+/**
+ * Runtime detection helper
+ */
+export const isEdgeRuntime = typeof EdgeRuntime === 'string'
+
+/**
+ * Environment helpers
+ */
+export const isDevelopment = env.IS_DEVELOPMENT
+export const isProduction = env.IS_PRODUCTION

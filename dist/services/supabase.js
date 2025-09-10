@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/env';
+import { logger } from '../utils/logger';
 // Main Supabase client
 class SupabaseService {
     client;
@@ -34,7 +35,7 @@ class SupabaseService {
                 }));
             }
         });
-        console.log(`Supabase service initialized with ${this.backupClients.length + 1} clients`);
+        logger.info('Supabase service initialized', { totalClients: this.backupClients.length + 1 });
     }
     // Get the current active client
     getClient() {
@@ -51,7 +52,7 @@ class SupabaseService {
                 const result = await operation(client);
                 // Update current client if we switched
                 if (clientIndex !== this.currentClientIndex) {
-                    console.log(`Switched to Supabase client ${clientIndex}`);
+                    logger.info('Switched to backup Supabase client', { clientIndex });
                     this.currentClientIndex = clientIndex;
                     this.client = client;
                 }
@@ -59,7 +60,7 @@ class SupabaseService {
             }
             catch (error) {
                 lastError = error;
-                console.warn(`Supabase client ${clientIndex} failed:`, error.message);
+                logger.warn('Supabase client failed', { clientIndex, error: error.message });
                 // Don't retry on authentication or permission errors
                 if (error.message?.includes('JWT') || error.message?.includes('permission')) {
                     throw error;

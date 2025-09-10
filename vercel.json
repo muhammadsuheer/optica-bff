@@ -1,71 +1,96 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "installCommand": "npm ci",
+  "framework": null,
   "functions": {
-    "src/index.ts": {
+    "src/app/edge.ts": {
       "runtime": "edge"
     }
   },
-  "rewrites": [
+  "routes": [
     {
-      "source": "/api/(.*)",
-      "destination": "/src/index.ts"
+      "src": "/v1/(.*)",
+      "dest": "/src/app/edge.ts"
     },
     {
-      "source": "/(.*)",
-      "destination": "/src/index.ts"
+      "src": "/health",
+      "dest": "/src/app/edge.ts"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/src/app/edge.ts"
     }
   ],
   "headers": [
     {
-      "source": "/api/(.*)",
+      "source": "/v1/catalog/(.*)",
       "headers": [
         {
           "key": "Cache-Control",
-          "value": "public, max-age=0, s-maxage=86400, stale-while-revalidate=86400"
+          "value": "public, max-age=300, stale-while-revalidate=600"
         },
         {
-          "key": "X-Content-Type-Options",
-          "value": "nosniff"
+          "key": "CDN-Cache-Control",
+          "value": "public, max-age=300"
         },
         {
-          "key": "X-Frame-Options",
-          "value": "DENY"
-        },
-        {
-          "key": "X-XSS-Protection",
-          "value": "1; mode=block"
-        },
-        {
-          "key": "Referrer-Policy",
-          "value": "strict-origin-when-cross-origin"
-        },
-        {
-          "key": "Permissions-Policy",
-          "value": "camera=(), microphone=(), geolocation=()"
+          "key": "Vary",
+          "value": "Accept-Encoding, Authorization"
         }
       ]
-    }
-  ],
-  "regions": ["iad1", "sfo1", "fra1", "sin1", "syd1"],
-  "crons": [
-    {
-      "path": "/api/v1/admin/cleanup",
-      "schedule": "0 2 * * *"
     },
     {
-      "path": "/api/v1/admin/sync",
-      "schedule": "*/30 * * * *"
+      "source": "/v1/commerce/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-cache, no-store, must-revalidate"
+        },
+        {
+          "key": "Pragma",
+          "value": "no-cache"
+        },
+        {
+          "key": "Expires",
+          "value": "0"
+        }
+      ]
     },
     {
-      "path": "/api/v1/admin/health-check",
-      "schedule": "*/5 * * * *"
+      "source": "/v1/auth/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, no-cache, no-store, must-revalidate"
+        }
+      ]
+    },
+    {
+      "source": "/v1/admin/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "private, max-age=60"
+        }
+      ]
+    },
+    {
+      "source": "/health",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=30"
+        }
+      ]
     }
   ],
   "env": {
     "NODE_ENV": "production"
   },
-  "build": {
-    "env": {
-      "NODE_ENV": "production"
-    }
+  "regions": ["iad1", "sfo1", "lhr1"],
+  "github": {
+    "enabled": false
   }
 }
