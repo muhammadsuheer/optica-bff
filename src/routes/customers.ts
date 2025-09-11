@@ -6,12 +6,12 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
-import databaseService from '../services/databaseService'
-import { logger } from '../utils/logger'
+import databaseService, { supabaseClient } from '../services/databaseService'
+import { logger } from '../observability/logger'
 import { validateRequest, getValidated, commonSchemas } from '../middleware/validateRequest'
 import { apiKey, hasPermission } from '../middleware/apiKey'
 import { requireAuth, getCurrentUser, requireRole } from '../middleware/auth'
-import { userRateLimit } from '../middleware/rateLimiter'
+import { rateLimitByKeyAndIP } from '../middleware/rateLimiter'
 
 const customers = new Hono()
 
@@ -57,7 +57,7 @@ const customerQuerySchema = z.object({
 
 // Apply middleware
 customers.use('*', apiKey({ allowedKeyTypes: ['frontend', 'mobile', 'admin'] }))
-customers.use('*', userRateLimit({ requests: 100, window: 300 })) // 100 requests per 5 minutes
+customers.use('*', rateLimitByKeyAndIP('customers', { requests: 100, window: 300 })) // 100 requests per 5 minutes
 
 /**
  * GET /customers - List customers (admin only)
@@ -88,7 +88,7 @@ customers.get('/',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Get customers error', { error })
+      logger.error('Get customers error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to retrieve customers' })
     }
   }
@@ -121,7 +121,7 @@ customers.get('/:id',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Get customer error', { error })
+      logger.error('Get customer error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to retrieve customer' })
     }
   }
@@ -152,7 +152,7 @@ customers.post('/',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Create customer error', { error })
+      logger.error('Create customer error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to create customer' })
     }
   }
@@ -197,7 +197,7 @@ customers.put('/:id',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Update customer error', { error })
+      logger.error('Update customer error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to update customer' })
     }
   }
@@ -230,7 +230,7 @@ customers.delete('/:id',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Delete customer error', { error })
+      logger.error('Delete customer error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to delete customer' })
     }
   }
@@ -275,7 +275,7 @@ customers.get('/:id/orders',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Get customer orders error', { error })
+      logger.error('Get customer orders error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to retrieve customer orders' })
     }
   }
@@ -300,7 +300,7 @@ customers.get('/me',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Get current customer error', { error })
+      logger.error('Get current customer error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to retrieve profile' })
     }
   }
@@ -337,7 +337,7 @@ customers.put('/me',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Update current customer error', { error })
+      logger.error('Update current customer error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to update profile' })
     }
   }

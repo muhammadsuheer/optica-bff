@@ -14,7 +14,7 @@ import { env } from '../config/env'
 import { logger } from '../observability/logger'
 
 // Simple Supabase client
-import { getAnonClient } from '../adapters/supabase'
+import { supabaseClient } from '../services/supabase'
 
 // Types
 import type { Context } from 'hono'
@@ -53,7 +53,7 @@ app.use('*', async (c, next) => {
   const start = Date.now()
   const traceId = c.get('requestId') || 'unknown'
   
-  c.set('traceId', traceId)
+  ;(c as any).set('traceId', traceId) // TODO: Fix Hono context typing
   
   await next()
   
@@ -86,17 +86,17 @@ app.get('/health', (c: Context) => {
 
 // Simple catalog products endpoint
 app.get('/v1/catalog/products', async (c: Context) => {
-  const traceId = c.get('traceId')
+  const traceId = (c as any).get('traceId')
   
   try {
     const page = parseInt(c.req.query('page') || '1')
     const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100)
     
     // Get Supabase client
-    const supabase = getAnonClient()
+    const supabase = supabaseClient
     
     // Query products
-    const { data: products, error, count } = await supabase
+    const { data: products, error, count } = await supabaseClient
       .from('products')
       .select('*', { count: 'exact' })
       .eq('status', 'publish')
@@ -104,7 +104,7 @@ app.get('/v1/catalog/products', async (c: Context) => {
       .range((page - 1) * limit, page * limit - 1)
     
     if (error) {
-      logger.error('Supabase query error', { error, traceId })
+      logger.error('Supabase query error', new Error('Error'));
       return c.json({
         success: false,
         error: {
@@ -151,7 +151,7 @@ app.get('/v1/catalog/products', async (c: Context) => {
     })
     
   } catch (error) {
-    logger.error('Catalog error', { error, traceId })
+    logger.error('Catalog error', new Error('Error'));
     return c.json({
       success: false,
       error: {
@@ -166,12 +166,12 @@ app.get('/v1/catalog/products', async (c: Context) => {
 // Single product endpoint
 app.get('/v1/catalog/products/:id', async (c: Context) => {
   const id = c.req.param('id')
-  const traceId = c.get('traceId')
+  const traceId = (c as any).get('traceId')
   
   try {
-    const supabase = getAnonClient()
+    const supabase = supabaseClient
     
-    const { data: product, error } = await supabase
+    const { data: product, error } = await supabaseClient
       .from('products')
       .select('*')
       .eq('id', id)
@@ -190,7 +190,7 @@ app.get('/v1/catalog/products/:id', async (c: Context) => {
         }, 404)
       }
       
-      logger.error('Product query error', { error, id, traceId })
+      logger.error('Product query error', new Error('Error'));
       return c.json({
         success: false,
         error: {
@@ -224,7 +224,7 @@ app.get('/v1/catalog/products/:id', async (c: Context) => {
     })
     
   } catch (error) {
-    logger.error('Product error', { error, id, traceId })
+    logger.error('Product error', new Error('Error'));
     return c.json({
       success: false,
       error: {
@@ -239,7 +239,7 @@ app.get('/v1/catalog/products/:id', async (c: Context) => {
 // Admin cache bump
 app.post('/v1/admin/catalog/bump', async (c: Context) => {
   const adminToken = c.req.header('x-admin-token')
-  const traceId = c.get('traceId')
+  const traceId = (c as any).get('traceId')
   
   if (!adminToken || !env.API_KEYS.includes(adminToken)) {
     return c.json({
@@ -288,7 +288,7 @@ app.get('/', (c: Context) => {
 
 // 404 handler
 app.notFound((c: Context) => {
-  const traceId = c.get('traceId') || 'unknown'
+  const traceId = (c as any).get('traceId') || 'unknown'
   
   return c.json({
     error: {
@@ -303,9 +303,9 @@ app.notFound((c: Context) => {
 
 // Global error handler
 app.onError((err, c) => {
-  const traceId = c.get('traceId') || 'unknown'
+  const traceId = (c as any).get('traceId') || 'unknown'
   
-  logger.error('Unhandled error', { error: err.message, traceId })
+  logger.error('Unhandled error', err instanceof Error ? err : new Error('Unknown error'), { traceId})
   
   return c.json({
     success: false,

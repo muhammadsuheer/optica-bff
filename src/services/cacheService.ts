@@ -7,10 +7,15 @@
  * - Response size limits (4MB max)
  * - Automatic compression for large values
  * - Performance metrics
+ * 
+ * USAGE:
+ * - This is the base cache service for low-level KV operations
+ * - For high-level operations with tags and bulk mode, use cache.ts
+ * - This service provides the foundation for the tagged cache service
  */
 
 import { kvClient } from '../lib/kvClient'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 // Cache configuration
 interface CacheOptions {
@@ -100,7 +105,7 @@ class EdgeCacheService {
 
     } catch (error) {
       this.stats.errors++
-      logger.error('Cache get error', { key, error })
+      logger.error('Cache get error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return null
     }
   }
@@ -108,7 +113,7 @@ class EdgeCacheService {
   /**
    * Set value in cache (both memory and KV)
    */
-  async set<T = any>(key: string, value: T, options: CacheOptions = {}): Promise<boolean> {
+  async set<T = any>(key: string, value: T, options: CacheOptions & { nx?: boolean } = {}): Promise<boolean> {
     try {
       const {
         ttl = 3600, // 1 hour default
@@ -140,7 +145,7 @@ class EdgeCacheService {
       }
 
       // Store in KV
-      const kvSuccess = await kvClient.set(key, entry, { ttl })
+      const kvSuccess = await kvClient.set(key, entry, { ttl, nx: options.nx })
       
       if (kvSuccess) {
         // Store in memory with shorter TTL
@@ -161,7 +166,7 @@ class EdgeCacheService {
 
     } catch (error) {
       this.stats.errors++
-      logger.error('Cache set error', { key, error })
+      logger.error('Cache set error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return false
     }
   }
@@ -169,25 +174,36 @@ class EdgeCacheService {
   /**
    * Delete value from cache
    */
-  async del(key: string): Promise<boolean> {
+  async del(key: string): Promise<boolean>
+  async del(...keys: string[]): Promise<number>
+  async del(keyOrKeys: string | string[]): Promise<boolean | number> {
     try {
-      // Remove from memory
-      this.memoryCache.delete(key)
+      if (Array.isArray(keyOrKeys)) {
+        // Multiple keys
+        for (const key of keyOrKeys) {
+          this.memoryCache.delete(key)
+        }
+        const deleted = await kvClient.bulkDel(keyOrKeys)
+        this.stats.deletes += deleted
+        logger.debug('Cache bulk delete', { keys: keyOrKeys.length, deleted })
+        return deleted
+      } else {
+        // Single key
+        this.memoryCache.delete(keyOrKeys)
+        const kvSuccess = await kvClient.del(keyOrKeys)
+        
+        if (kvSuccess) {
+          this.stats.deletes++
+          logger.debug('Cache delete', { key: keyOrKeys })
+        }
 
-      // Remove from KV
-      const kvSuccess = await kvClient.del(key)
-      
-      if (kvSuccess) {
-        this.stats.deletes++
-        logger.debug('Cache delete', { key })
+        return kvSuccess
       }
-
-      return kvSuccess
 
     } catch (error) {
       this.stats.errors++
-      logger.error('Cache delete error', { key, error })
-      return false
+      logger.error('Cache delete error', error instanceof Error ? error : new Error('Unknown error'), {key: keyOrKeys})
+      return Array.isArray(keyOrKeys) ? 0 : false
     }
   }
 
@@ -200,7 +216,7 @@ class EdgeCacheService {
       const result = await kvClient.invalidateByTags(tags)
       
       // Also clear related entries from memory cache
-      for (const [key, entry] of this.memoryCache.entries()) {
+      for (const [key, entry] of Array.from(this.memoryCache.entries())) {
         if (entry.tags.some(tag => tags.includes(tag))) {
           this.memoryCache.delete(key)
         }
@@ -215,7 +231,7 @@ class EdgeCacheService {
       return result
 
     } catch (error) {
-      logger.error('Cache invalidation error', { tags, error })
+      logger.error('Cache invalidation error', error instanceof Error ? error : new Error('Unknown error'), {tags})
       return { deleted: 0, errors: [error instanceof Error ? error.message : 'Unknown error'] }
     }
   }
@@ -243,7 +259,7 @@ class EdgeCacheService {
       return value
 
     } catch (error) {
-      logger.error('Cache warm error', { key, error })
+      logger.error('Cache warm error', error instanceof Error ? error : new Error('Unknown error'), {key})
       throw error
     }
   }
@@ -263,6 +279,42 @@ class EdgeCacheService {
       memoryHitRate: Math.round(memoryHitRate * 100) / 100,
       kvHitRate: Math.round(kvHitRate * 100) / 100
     }
+  }
+
+  /**
+   * Add members to a set
+   */
+  async sadd(key: string, ...members: string[]): Promise<boolean> {
+    try {
+      // Handle both single and multiple members
+      if (members.length === 1) {
+        return await kvClient.sadd(key, members[0])
+      } else {
+        return await (kvClient as any).sadd(key, ...members)
+      }
+    } catch (error) {
+      logger.error('Cache sadd error', error instanceof Error ? error : new Error('Unknown error'), {key})
+      return false
+    }
+  }
+
+  /**
+   * Get all members of a set
+   */
+  async smembers(key: string): Promise<string[]> {
+    try {
+      return await kvClient.smembers(key)
+    } catch (error) {
+      logger.error('Cache smembers error', error instanceof Error ? error : new Error('Unknown error'), {key})
+      return []
+    }
+  }
+
+  /**
+   * Invalidate cache by tags (alias for invalidateByTags)
+   */
+  async invalidateTags(tags: string[]): Promise<void> {
+    await this.invalidateByTags(tags)
   }
 
   /**
@@ -315,7 +367,7 @@ class EdgeCacheService {
     let oldestKey = ''
     let oldestTime = Date.now()
 
-    for (const [key, entry] of this.memoryCache.entries()) {
+    for (const [key, entry] of Array.from(this.memoryCache.entries())) {
       if (entry.lastAccessed < oldestTime) {
         oldestTime = entry.lastAccessed
         oldestKey = key
@@ -354,7 +406,7 @@ class EdgeCacheService {
         offset += chunk.length
       }
 
-      return btoa(String.fromCharCode(...compressed))
+      return btoa(String.fromCharCode(...Array.from(compressed)))
     } catch (error) {
       logger.warn('Compression failed, using original data', { error })
       return data
@@ -400,7 +452,7 @@ class EdgeCacheService {
       const jsonStr = compressed ? this.decompressData(data) : data
       return typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr
     } catch (error) {
-      logger.error('Cache value deserialization failed', { error })
+      logger.error('Cache value deserialization failed', error instanceof Error ? error : new Error('Unknown error'))
       return null
     }
   }
@@ -410,7 +462,7 @@ class EdgeCacheService {
 export const cacheService = new EdgeCacheService()
 
 // Export class for testing
-export { EdgeCacheService }
+// Exports handled above
 
 // Export types
 export type { CacheOptions, CacheStats, CacheEntry }

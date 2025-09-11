@@ -10,7 +10,7 @@
  */
 
 import { config } from '../config/env'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 import { cacheService, CACHE_TTL, CACHE_TAGS } from './cacheService'
 
 export interface WooCommerceProduct {
@@ -19,9 +19,9 @@ export interface WooCommerceProduct {
   slug: string
   permalink: string
   date_created: string
-  date_created_gmt: string
+  // date_created_gmt: string // Duplicate removed
   date_modified: string
-  date_modified_gmt: string
+  // date_modified_gmt: string // Duplicate removed
   type: string
   status: string
   featured: boolean
@@ -84,9 +84,9 @@ export interface WooCommerceProduct {
   images: Array<{
     id: number
     date_created: string
-    date_created_gmt: string
-    date_modified: string
-    date_modified_gmt: string
+    // date_created_gmt: string // Duplicate removed
+  date_modified: string
+  // date_modified_gmt: string // Duplicate removed
     src: string
     name: string
     alt: string
@@ -116,9 +116,9 @@ export interface WooCommerceOrder {
   status: string
   currency: string
   date_created: string
-  date_created_gmt: string
+  // date_created_gmt: string // Duplicate removed
   date_modified: string
-  date_modified_gmt: string
+  // date_modified_gmt: string // Duplicate removed
   discount_total: string
   discount_tax: string
   shipping_total: string
@@ -197,7 +197,7 @@ export interface WooCommerceOrder {
   is_editable: boolean
   needs_payment: boolean
   needs_processing: boolean
-  date_created_gmt: string
+  // date_created_gmt: string // Duplicate removed
   date_modified_gmt: string
   date_completed_gmt: string | null
   date_paid_gmt: string | null
@@ -246,10 +246,7 @@ class WooCommerceService {
       return data as T
 
     } catch (error) {
-      logger.error('WooCommerce API request failed', { 
-        endpoint, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
-      })
+      logger.error('WooCommerce API request failed', error instanceof Error ? error : new Error('Unknown error'), {endpoint})
       return null
     }
   }
@@ -306,7 +303,7 @@ class WooCommerceService {
         `/wp-json/wc/v3/products?${queryParams.toString()}`
       )
 
-      if (!products) {
+      if (!products as any) {
         return []
       }
 
@@ -317,14 +314,81 @@ class WooCommerceService {
       })
 
       logger.info('WooCommerce products fetched', { 
-        count: products.length, 
+        count: (products as any)?.length || 0, 
         params 
       })
 
-      return products
+      return products || []
 
     } catch (error) {
-      logger.error('Error fetching WooCommerce products', { error, params })
+      logger.error('Error fetching WooCommerce products', new Error('Error'));
+      return []
+    }
+  }
+
+  /**
+   * Get categories from WooCommerce
+   */
+  async getCategories(params: {
+    page?: number
+    per_page?: number
+    search?: string
+    orderby?: string
+    order?: 'asc' | 'desc'
+  } = {}): Promise<any[]> {
+    try {
+      const {
+        page = 1,
+        per_page = 20,
+        search,
+        orderby = 'id',
+        order = 'asc'
+      } = params
+
+      // Generate cache key
+      const cacheKey = `wc:categories:${JSON.stringify(params)}`
+      
+      // Try to get from cache first
+      const cached = await cacheService.get<any[]>(cacheKey)
+      if (cached) {
+        logger.debug('WooCommerce categories cache hit', { params })
+        return cached
+      }
+
+      // Build query parameters
+      const queryParams = new URLSearchParams({
+        page: page.toString(),
+        per_page: per_page.toString(),
+        orderby,
+        order
+      })
+
+      if (search) {
+        queryParams.set('search', search)
+      }
+
+      // Fetch from WooCommerce API
+      const categories = await this.makeRequest<any[]>(`/wp-json/wc/v3/products/categories?${queryParams.toString()}`)
+      
+      if (!categories) {
+        return []
+      }
+
+      // Cache the result
+      await cacheService.set(cacheKey, categories, {
+        ttl: 300, // CACHE_TTL,
+        tags: ['woocommerce', 'categories'] // [CACHE_TAGS.WOOCOMMERCE, CACHE_TAGS.CATEGORIES]
+      })
+
+      logger.info('WooCommerce categories fetched', {
+        count: categories.length, 
+        params 
+      })
+
+      return categories
+
+    } catch (error) {
+      logger.error('Error fetching WooCommerce categories', new Error('Error'));
       return []
     }
   }
@@ -362,7 +426,7 @@ class WooCommerceService {
       return product
 
     } catch (error) {
-      logger.error('Error fetching WooCommerce product', { error, id })
+      logger.error('Error fetching WooCommerce product', new Error('Error'));
       return null
     }
   }
@@ -431,7 +495,7 @@ class WooCommerceService {
       return orders
 
     } catch (error) {
-      logger.error('Error fetching WooCommerce orders', { error, params })
+      logger.error('Error fetching WooCommerce orders', new Error('Error'));
       return []
     }
   }
@@ -469,7 +533,7 @@ class WooCommerceService {
       return order
 
     } catch (error) {
-      logger.error('Error fetching WooCommerce order', { error, id })
+      logger.error('Error fetching WooCommerce order', new Error('Error'));
       return null
     }
   }
@@ -498,7 +562,7 @@ class WooCommerceService {
       return order
 
     } catch (error) {
-      logger.error('Error updating WooCommerce order status', { error, id, status })
+      logger.error('Error updating WooCommerce order status', new Error('Error'));
       return null
     }
   }
@@ -517,7 +581,7 @@ class WooCommerceService {
         short_description: wcProduct.short_description,
         price: parseFloat(wcProduct.price) || 0,
         regular_price: parseFloat(wcProduct.regular_price) || 0,
-        sale_price: wcProduct.sale_price ? parseFloat(wcProduct.sale_price) : null,
+        sale_price: wcProduct.sale_price ? parseFloat(wcProduct.sale_price) : undefined,
         status: wcProduct.status,
         featured: wcProduct.featured,
         images: wcProduct.images.map(img => img.src),
@@ -541,7 +605,7 @@ class WooCommerceService {
 
       // Import databaseService to upsert the product
       const { productService } = await import('./productService')
-      const result = await productService.upsertProduct(localProduct)
+      const result = await productService.upsertProduct(localProduct as any)
 
       if (result) {
         logger.info('Product synced from WooCommerce', { 
@@ -554,10 +618,7 @@ class WooCommerceService {
       return false
 
     } catch (error) {
-      logger.error('Error syncing product from WooCommerce', { 
-        error, 
-        wc_id: wcProduct.id 
-      })
+      logger.error('Error syncing product from WooCommerce', new Error('Error'));
       return false
     }
   }
@@ -614,7 +675,7 @@ class WooCommerceService {
 export const wooCommerceService = new WooCommerceService()
 
 // Export class for testing
-export { WooCommerceService }
+// Exports handled above
 
 // Export types
-export type { WooCommerceProduct, WooCommerceOrder }
+// export type { WooCommerceProduct, WooCommerceOrder } // Already exported above

@@ -10,7 +10,7 @@
  */
 
 import { config } from '../config/env'
-import { logger } from '../utils/logger'
+import { logger } from './logger'
 
 export interface TraceContext {
   traceId: string
@@ -310,10 +310,7 @@ class ObservabilityService {
       // Could add other monitoring services here (DataDog, New Relic, etc.)
       
     } catch (error) {
-      logger.error('Failed to send trace to monitoring', { 
-        traceId: trace.traceId, 
-        error 
-      })
+      logger.error('Failed to send trace to monitoring', error instanceof Error ? error : new Error('Unknown error'), {traceId: trace.traceId})
     }
   }
 
@@ -334,7 +331,7 @@ class ObservabilityService {
         logCount: trace.logs.length
       })
     } catch (error) {
-      logger.error('Failed to send trace to Sentry', { error })
+      logger.error('Failed to send trace to Sentry', error instanceof Error ? error : new Error('Unknown error'))
     }
   }
 
@@ -383,10 +380,10 @@ class ObservabilityService {
 export const observabilityService = new ObservabilityService()
 
 // Export class for testing
-export { ObservabilityService }
+// Exports handled above
 
 // Export types
-export type { TraceContext, Metric, PerformanceMetrics }
+// export type { TraceContext, Metric, PerformanceMetrics } // Duplicate export removed
 
 // Utility functions for easy use
 export function startTrace(operation: string, parentSpanId?: string, tags?: Record<string, string | number | boolean>): TraceContext {

@@ -6,12 +6,12 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
-import { supabase } from '../services/supabase'
-import { logger } from '../utils/logger'
+import { supabaseClient } from '../services/supabase'
+import { logger } from '../observability/logger'
 import { validateRequest, getValidated } from '../middleware/validateRequest'
 import { apiKey } from '../middleware/apiKey'
 import { requireAuth, optionalAuth, getCurrentUser } from '../middleware/auth'
-import { userRateLimit } from '../middleware/rateLimiter'
+import { rateLimitByKeyAndIP } from '../middleware/rateLimiter'
 
 const auth = new Hono()
 
@@ -48,7 +48,7 @@ const updateProfileSchema = z.object({
 
 // Apply middleware
 auth.use('*', apiKey({ allowedKeyTypes: ['frontend', 'mobile', 'admin'] }))
-auth.use('*', userRateLimit({ requests: 30, window: 900 })) // 30 requests per 15 minutes
+auth.use('*', rateLimitByKeyAndIP('auth', { requests: 30, window: 900 })) // 30 requests per 15 minutes
 
 /**
  * POST /auth/signup - User registration
@@ -59,7 +59,7 @@ auth.post('/signup',
     const { email, password, firstName, lastName, metadata } = getValidated<z.infer<typeof signUpSchema>>(c, 'body')
     
     try {
-      const { data, error } = await supabase.auth.signUp({
+      const { data, error } = await supabaseClient.auth.signUp({
         email,
         password,
         options: {
@@ -91,7 +91,7 @@ auth.post('/signup',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Signup error', { error, email })
+      logger.error('Signup error', new Error('Error'));
       throw new HTTPException(500, { message: 'Internal server error' })
     }
   }
@@ -106,7 +106,7 @@ auth.post('/signin',
     const { email, password } = getValidated<z.infer<typeof signInSchema>>(c, 'body')
     
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabaseClient.auth.signInWithPassword({
         email,
         password
       })
@@ -128,7 +128,7 @@ auth.post('/signin',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Signin error', { error, email })
+      logger.error('Signin error', new Error('Error'));
       throw new HTTPException(500, { message: 'Internal server error' })
     }
   }
@@ -141,7 +141,7 @@ auth.post('/signout',
   optionalAuth(),
   async (c) => {
     try {
-      const { error } = await supabase.auth.signOut()
+      const { error } = await supabaseClient.auth.signOut()
 
       if (error) {
         logger.warn('Signout failed', { error: error.message })
@@ -157,7 +157,7 @@ auth.post('/signout',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Signout error', { error })
+      logger.error('Signout error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Internal server error' })
     }
   }
@@ -172,7 +172,7 @@ auth.post('/reset-password',
     const { email, redirectTo } = getValidated<z.infer<typeof resetPasswordSchema>>(c, 'body')
     
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
         redirectTo: redirectTo || undefined
       })
 
@@ -189,7 +189,7 @@ auth.post('/reset-password',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Password reset error', { error, email })
+      logger.error('Password reset error', new Error('Error'));
       throw new HTTPException(500, { message: 'Internal server error' })
     }
   }
@@ -208,7 +208,7 @@ auth.get('/user',
       }
 
       const token = authHeader.replace('Bearer ', '')
-      const { data: { user }, error } = await supabase.auth.getUser(token)
+      const { data: { user }, error } = await supabaseClient.auth.getUser(token)
 
       if (error || !user) {
         logger.warn('Get user failed', { error: error?.message })
@@ -219,7 +219,7 @@ auth.get('/user',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Get user error', { error })
+      logger.error('Get user error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Internal server error' })
     }
   }
@@ -235,7 +235,7 @@ auth.put('/user',
     const updates = getValidated<z.infer<typeof updateProfileSchema>>(c, 'body')
     
     try {
-      const { data, error } = await supabase.auth.updateUser({
+      const { data, error } = await supabaseClient.auth.updateUser({
         data: updates
       })
 
@@ -254,7 +254,7 @@ auth.put('/user',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Update user error', { error })
+      logger.error('Update user error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Internal server error' })
     }
   }
@@ -270,7 +270,7 @@ auth.put('/password',
     const { newPassword } = getValidated<z.infer<typeof updatePasswordSchema>>(c, 'body')
     
     try {
-      const { data, error } = await supabase.auth.updateUser({
+      const { data, error } = await supabaseClient.auth.updateUser({
         password: newPassword
       })
 
@@ -288,7 +288,7 @@ auth.put('/password',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Password change error', { error })
+      logger.error('Password change error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Internal server error' })
     }
   }
@@ -300,7 +300,7 @@ auth.put('/password',
 auth.post('/refresh',
   async (c) => {
     try {
-      const { data, error } = await supabase.auth.refreshSession()
+      const { data, error } = await supabaseClient.auth.refreshSession()
 
       if (error) {
         logger.warn('Token refresh failed', { error: error.message })
@@ -314,7 +314,7 @@ auth.post('/refresh',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Token refresh error', { error })
+      logger.error('Token refresh error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Internal server error' })
     }
   }

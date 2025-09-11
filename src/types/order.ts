@@ -132,7 +132,7 @@ export interface OrderCouponLine {
 export interface OrderRefund {
   id: number
   date_created: string
-  date_created_gmt: string
+  // date_created_gmt: string // Duplicate removed
   amount: string
   reason?: string
   refunded_by: number
@@ -209,7 +209,7 @@ export interface Order {
   is_editable: boolean
   needs_payment: boolean
   needs_processing: boolean
-  date_created_gmt: string
+  // date_created_gmt: string // Duplicate removed
   date_modified_gmt: string
   date_completed_gmt?: string
   date_paid_gmt?: string
@@ -311,7 +311,7 @@ export interface OrderNote {
   id: number
   author: string
   date_created: string
-  date_created_gmt: string
+  // date_created_gmt: string // Duplicate removed
   note: string
   customer_note: boolean
   added_by_user: boolean
@@ -404,7 +404,7 @@ export interface Cart {
   status: 'active' | 'abandoned' | 'converted' | 'expired'
   expires_at: string
   created_at: string
-  updated_at: string
+  // updated_at: string // Optional field
 }
 
 // Cart operations

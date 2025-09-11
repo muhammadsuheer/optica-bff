@@ -5,7 +5,7 @@
 import { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { config } from '../config/env'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 export interface ApiKeyContext {
   keyType: 'frontend' | 'admin' | 'mobile'
@@ -67,8 +67,8 @@ export async function validateApiKey(apiKey: string): Promise<ApiKeyContext | nu
 
     // Use constant-time comparison directly with configured keys
     // API keys should be stored as plain text in environment (they're already secrets)
-    for (let i = 0; i < config.auth.apiKeys.length; i++) {
-      const configuredKey = config.auth.apiKeys[i]
+    for (let i = 0; i < ((globalThis as any).API_KEYS || '').split(',').length; i++) {
+      const configuredKey = ((globalThis as any).API_KEYS || '').split(',')[i]
       
       if (constantTimeCompare(apiKey, configuredKey)) {
         // Determine key type based on position (better than string comparison)
@@ -100,7 +100,7 @@ export async function validateApiKey(apiKey: string): Promise<ApiKeyContext | nu
     
     return null
   } catch (error) {
-    logger.error('API key validation error', { error })
+    logger.error('API key validation error', error instanceof Error ? error : new Error('Unknown error'))
     return null
   }
 }

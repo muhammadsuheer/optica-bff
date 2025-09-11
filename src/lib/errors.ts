@@ -6,6 +6,23 @@
  */
 
 import type { Context } from 'hono'
+
+// Secret masking for error details
+const SECRET_KEYS = ['password','token','secret','key','apikey','authorization']
+
+function maskSecrets(obj: unknown): unknown {
+  if (!obj || typeof obj !== 'object') return obj
+  const clone: any = Array.isArray(obj) ? [...obj] : { ...obj }
+  for (const k of Object.keys(clone)) {
+    const v = clone[k]
+    if (SECRET_KEYS.some(s => k.toLowerCase().includes(s))) {
+      clone[k] = '***'
+    } else if (typeof v === 'object' && v) {
+      clone[k] = maskSecrets(v)
+    }
+  }
+  return clone
+}
 import { logger } from '../observability/logger'
 import { env } from '../config/env'
 
@@ -418,7 +435,7 @@ export const idempotencyErrors = {
  * Global error handler for Hono
  */
 export function errorHandler(error: Error, c: Context) {
-  const traceId = c.get('traceId') || 'unknown'
+  const traceId = (c as any).get('traceId') || 'unknown'
   
   // Handle known AppError instances
   if (error instanceof AppError) {
@@ -431,11 +448,11 @@ export function errorHandler(error: Error, c: Context) {
       stack: error.stack
     })
     
-    return c.json(error.toResponse(traceId), error.statusCode)
+    return c.json(error.toResponse(traceId), error.statusCode as any)
   }
   
   // Handle unexpected errors
-  logger.error('Unhandled error', {
+  logger.error('Unhandled error', undefined, {
     message: error.message,
     stack: error.stack,
     traceId
@@ -454,6 +471,27 @@ export function errorHandler(error: Error, c: Context) {
   }
   
   return c.json(response, 500)
+}
+
+// Unified error helper with secret masking
+export function errorJson(
+  c: Context,
+  code: ErrorCode | string,
+  message: string,
+  status = 400,
+  details?: Record<string, unknown>,
+  traceId?: string
+) {
+  const response: ErrorResponse = {
+    error: {
+      code: code as ErrorCode,
+      message,
+      details: maskSecrets(details) as any,
+      traceId: traceId || (c as any).get('traceId') || 'unknown',
+      timestamp: new Date().toISOString()
+    }
+  }
+  return c.json(response, status as any)
 }
 
 // =======================
@@ -502,7 +540,7 @@ export function assert(
  * 404 Not Found handler
  */
 export const notFoundHandler = (c: Context) => {
-  const traceId = c.get('traceId') || 'unknown'
+  const traceId = (c as any).get('traceId') || 'unknown'
   
   return c.json({
     error: {
@@ -515,9 +553,4 @@ export const notFoundHandler = (c: Context) => {
   }, 404)
 }
 
-export {
-  AppError,
-  ErrorCode,
-  type ErrorResponse,
-  notFoundHandler
-}
+// Exports handled above

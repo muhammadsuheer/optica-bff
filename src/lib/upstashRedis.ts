@@ -11,7 +11,7 @@
 import { Redis } from '@upstash/redis'
 import { Ratelimit } from '@upstash/ratelimit'
 import { env } from '../config/env'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 // Initialize Redis client
 export const redis = new Redis({
@@ -93,7 +93,7 @@ export class UpstashCacheService {
       logger.debug('Cache hit', { key })
       return value as T
     } catch (error) {
-      logger.error('Cache get error', { key, error })
+      logger.error('Cache get error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return null
     }
   }
@@ -131,7 +131,7 @@ export class UpstashCacheService {
       logger.debug('Cache set', { key, ttl, tags })
       return true
     } catch (error) {
-      logger.error('Cache set error', { key, error })
+      logger.error('Cache set error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return false
     }
   }
@@ -145,7 +145,7 @@ export class UpstashCacheService {
       logger.debug('Cache delete', { key, deleted: result })
       return result > 0
     } catch (error) {
-      logger.error('Cache delete error', { key, error })
+      logger.error('Cache delete error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return false
     }
   }
@@ -182,7 +182,7 @@ export class UpstashCacheService {
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : 'Unknown error'
       result.errors.push(errorMsg)
-      logger.error('Cache invalidation error', { tags, error })
+      logger.error('Cache invalidation error', error instanceof Error ? error : new Error('Unknown error'), {tags})
     }
 
     return result
@@ -236,8 +236,8 @@ export class UpstashCacheService {
   }> {
     try {
       const [info, memory] = await Promise.all([
-        this.redis.info(),
-        this.redis.memory('usage')
+        (this.redis as any).info(),
+        (this.redis as any).memory('usage')
       ])
 
       return {
@@ -248,7 +248,7 @@ export class UpstashCacheService {
         }
       }
     } catch (error) {
-      logger.error('Failed to get Redis stats', { error })
+      logger.error('Failed to get Redis stats', error instanceof Error ? error : new Error('Unknown error'))
       return {
         info: {},
         memory: { used: 0, peak: 0 }

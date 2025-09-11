@@ -6,12 +6,12 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
-import databaseService from '../services/databaseService'
-import { logger } from '../utils/logger'
+import databaseService, { supabaseClient } from '../services/databaseService'
+import { logger } from '../observability/logger'
 import { validateRequest, getValidated, commonSchemas } from '../middleware/validateRequest'
 import { apiKey, hasPermission } from '../middleware/apiKey'
 import { requireRole } from '../middleware/auth'
-import { endpointRateLimit } from '../middleware/rateLimiter'
+import { rateLimitByKeyAndIP } from '../middleware/rateLimiter'
 import { config } from '../config/env'
 
 const woocommerce = new Hono()
@@ -39,7 +39,7 @@ const webhookEventSchema = z.object({
 
 // Apply middleware
 woocommerce.use('*', apiKey({ allowedKeyTypes: ['admin'] }))
-woocommerce.use('/sync/*', endpointRateLimit('wc-sync', { requests: 10, window: 60 })) // 10 sync requests per minute
+woocommerce.use('/sync/*', rateLimitByKeyAndIP('wc-sync', { requests: 10, window: 60 })) // 10 sync requests per minute
 
 /**
  * POST /woocommerce/sync/products - Sync products from WooCommerce
@@ -99,7 +99,7 @@ woocommerce.post('/sync/products',
         products: syncedProducts.map(p => ({ id: p.id, name: p.name }))
       })
     } catch (error) {
-      logger.error('Product sync error', { error })
+      logger.error('Product sync error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Product sync failed' })
     }
   }
@@ -163,7 +163,7 @@ woocommerce.post('/sync/orders',
         orders: syncedOrders.map(o => ({ id: o.id, status: o.status }))
       })
     } catch (error) {
-      logger.error('Order sync error', { error })
+      logger.error('Order sync error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Order sync failed' })
     }
   }
@@ -208,7 +208,7 @@ woocommerce.post('/webhook',
         }
       })
     } catch (error) {
-      logger.error('Webhook processing error', { error })
+      logger.error('Webhook processing error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Webhook processing failed' })
     }
   }
@@ -225,7 +225,7 @@ woocommerce.get('/status',
       
       return c.json(status)
     } catch (error) {
-      logger.error('Get sync status error', { error })
+      logger.error('Get sync status error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to get sync status' })
     }
   }
@@ -248,7 +248,7 @@ async function fetchWooCommerceProducts(page: number, per_page: number): Promise
 
   const response = await fetch(`${url}?${params}`, {
     headers: {
-      'Authorization': `Basic ${btoa(`${config.woocommerce.readKeys.consumerKey}:${config.woocommerce.readKeys.consumerSecret}`)}`,
+      'Authorization': `Basic ${btoa(`${config.woocommerce.consumerKey}:${config.woocommerce.consumerSecret}`)}`,
       'Content-Type': 'application/json'
     }
   })
@@ -280,7 +280,7 @@ async function fetchWooCommerceOrders(
 
   const response = await fetch(`${url}?${params}`, {
     headers: {
-      'Authorization': `Basic ${btoa(`${config.woocommerce.readKeys.consumerKey}:${config.woocommerce.readKeys.consumerSecret}`)}`,
+      'Authorization': `Basic ${btoa(`${config.woocommerce.consumerKey}:${config.woocommerce.consumerSecret}`)}`,
       'Content-Type': 'application/json'
     }
   })

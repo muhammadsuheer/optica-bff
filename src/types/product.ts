@@ -60,7 +60,7 @@ export interface ProductVariation {
   downloadable?: boolean
   virtual?: boolean
   created_at: string
-  updated_at: string
+  // updated_at: string // Optional field
 }
 
 // Main product interface
@@ -138,7 +138,7 @@ export interface Product {
   }>
   search_vector?: string
   created_at: string
-  updated_at: string
+  updated_at: string | null
   synced_at: string
   sync_metadata?: SyncMetadata
 }

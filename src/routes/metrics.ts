@@ -3,11 +3,11 @@
  */
 
 import { Hono } from 'hono'
-import { upstashCache } from '../lib/upstashClient'
+import { kvClient } from '../lib/kvClient'
 import { cacheService } from '../services/cacheService'
 import { circuitBreakers } from '../middleware/circuitBreaker'
 import { supabase } from '../services/supabase'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 const metrics = new Hono()
 
@@ -21,7 +21,7 @@ metrics.get('/performance', async (c) => {
     const [cacheStats, dbHealth, upstashHealth] = await Promise.allSettled([
       cacheService.getStats(),
       supabase.healthCheck().catch(() => ({ primary: { healthy: false, latency: 0 } })),
-      upstashCache.healthCheck().catch(() => ({ healthy: false, latency: 0 }))
+      kvClient.healthCheck().catch(() => ({ healthy: false, latency: 0 }))
     ])
     
     const responseTime = performance.now() - startTime
@@ -37,10 +37,17 @@ metrics.get('/performance', async (c) => {
         primary: dbHealth.status === 'fulfilled' ? dbHealth.value.primary : { healthy: false, latency: 0 },
         backups: dbHealth.status === 'fulfilled' && 'backups' in dbHealth.value ? (dbHealth.value.backups || []) : []
       },
-      circuitBreakers: {
-        woocommerce: circuitBreakers.woocommerce.getMetrics(),
-        supabase: circuitBreakers.supabase.getMetrics()
-      },
+      circuitBreakers: await Promise.allSettled([
+        circuitBreakers.woocommerce.getMetrics(),
+        circuitBreakers.supabase.getMetrics(),
+        circuitBreakers.upstash.getMetrics(),
+        circuitBreakers.payfast.getMetrics()
+      ]).then(results => ({
+        woocommerce: results[0].status === 'fulfilled' ? results[0].value : { error: 'Failed to get metrics' },
+        supabase: results[1].status === 'fulfilled' ? results[1].value : { error: 'Failed to get metrics' },
+        upstash: results[2].status === 'fulfilled' ? results[2].value : { error: 'Failed to get metrics' },
+        payfast: results[3].status === 'fulfilled' ? results[3].value : { error: 'Failed to get metrics' }
+      })),
       memory: typeof process !== 'undefined' && process.memoryUsage ? {
         rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)}MB`,
         heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`
@@ -49,7 +56,7 @@ metrics.get('/performance', async (c) => {
         `${Math.round(process.uptime())}s` : 'N/A'
     })
   } catch (error) {
-    logger.error('Metrics endpoint error', { error })
+    logger.error('Metrics endpoint error', error instanceof Error ? error : new Error('Unknown error'))
     return c.json({
       error: 'Failed to retrieve metrics',
       timestamp: new Date().toISOString()
@@ -73,7 +80,7 @@ metrics.get('/health', async (c) => {
   
   // Test Upstash cache
   try {
-    const upstashHealth = await upstashCache.healthCheck()
+    const upstashHealth = await kvClient.healthCheck()
     checks.upstash = upstashHealth.healthy
     if (!checks.upstash) overallStatus = 'degraded'
   } catch (error) {
@@ -126,7 +133,7 @@ metrics.get('/cache', async (c) => {
   try {
     const [legacyStats, upstashHealth] = await Promise.allSettled([
       cacheService.getStats(),
-      upstashCache.healthCheck()
+      kvClient.healthCheck()
     ])
 
     return c.json({
@@ -135,7 +142,7 @@ metrics.get('/cache', async (c) => {
       upstash: upstashHealth.status === 'fulfilled' ? upstashHealth.value : { error: 'Failed to get Upstash health' }
     })
   } catch (error) {
-    logger.error('Cache metrics error', { error })
+    logger.error('Cache metrics error', error instanceof Error ? error : new Error('Unknown error'))
     return c.json({
       error: 'Failed to retrieve cache metrics',
       timestamp: new Date().toISOString()

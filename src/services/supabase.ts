@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { config } from '../config/env'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 // Simplified database interface for now
 interface Database {
@@ -29,7 +29,7 @@ interface Database {
           meta_data: any
           search_vector: string | null
           created_at: string
-          updated_at: string
+          updated_at: string | null
           synced_at: string
         }
         Insert: {
@@ -79,6 +79,48 @@ interface Database {
           created_at?: string
           updated_at?: string
           synced_at?: string
+        }
+      }
+      categories: {
+        Row: {
+          id: number
+          wc_id: number
+          name: string
+          slug: string
+          description: string | null
+          parent_id: number | null
+          count: number
+          date_modified_woo: string | null
+          created_at: string
+          updated_at: string
+          is_deleted: boolean
+          deleted_at: string | null
+        }
+        Insert: {
+          wc_id: number
+          name: string
+          slug: string
+          description?: string | null
+          parent_id?: number | null
+          count?: number
+          date_modified_woo?: string | null
+          created_at?: string
+          updated_at?: string
+          is_deleted?: boolean
+          deleted_at?: string | null
+        }
+        Update: {
+          wc_id?: number
+          name?: string
+          slug?: string
+          description?: string | null
+          parent_id?: number | null
+          count?: number
+          date_modified_woo?: string | null
+          created_at?: string
+          updated_at?: string
+          is_deleted?: boolean
+          deleted_at?: string | null
         }
       }
       orders: {
@@ -178,7 +220,7 @@ interface Database {
           status: string
           expires_at: string
           created_at: string
-          updated_at: string
+          // updated_at: string // Optional field
         }
         Insert: {
           session_id: string
@@ -379,6 +421,135 @@ interface Database {
         }
       }
     }
+    carts: {
+      Row: {
+        id: number
+        session_id: string
+        customer_id: number | null
+        items: any
+        subtotal: number
+        tax_total: number
+        shipping_total: number
+        total: number
+        currency: string
+        status: string
+        expires_at: string | null
+        created_at: string
+        // updated_at: string // Optional field
+      }
+      Insert: {
+        session_id: string
+        customer_id?: number | null
+        items?: any
+        subtotal?: number
+        tax_total?: number
+        shipping_total?: number
+        total?: number
+        currency?: string
+        status?: string
+        expires_at?: string | null
+        created_at?: string
+        updated_at?: string
+      }
+      Update: {
+        session_id?: string
+        customer_id?: number | null
+        items?: any
+        subtotal?: number
+        tax_total?: number
+        shipping_total?: number
+        total?: number
+        currency?: string
+        status?: string
+        expires_at?: string | null
+        created_at?: string
+        updated_at?: string
+      }
+    }
+    analytics_metrics: {
+      Row: {
+        id: number
+        name: string
+        value: number
+        tags: any
+        timestamp: string
+        created_at: string
+      }
+      Insert: {
+        name: string
+        value: number
+        tags?: any
+        timestamp?: string
+        created_at?: string
+      }
+      Update: {
+        name?: string
+        value?: number
+        tags?: any
+        timestamp?: string
+        created_at?: string
+      }
+    }
+    dlq: {
+      Row: {
+        id: number
+        job_id: string
+        topic: string
+        payload: any
+        error: string | null
+        retry_count: number
+        max_retries: number
+        created_at: string
+        updated_at: string
+        processed_at: string | null
+      }
+      Insert: {
+        job_id: string
+        topic: string
+        payload: any
+        error?: string | null
+        retry_count?: number
+        max_retries?: number
+        created_at?: string
+        updated_at?: string
+        processed_at?: string | null
+      }
+      Update: {
+        job_id?: string
+        topic?: string
+        payload?: any
+        error?: string | null
+        retry_count?: number
+        max_retries?: number
+        created_at?: string
+        updated_at?: string
+        processed_at?: string | null
+      }
+    }
+    order_status_history: {
+      Row: {
+        id: number
+        order_id: number
+        status: string
+        note: string | null
+        user_id: string | null
+        created_at: string
+      }
+      Insert: {
+        order_id: number
+        status: string
+        note?: string | null
+        user_id?: string | null
+        created_at?: string
+      }
+      Update: {
+        order_id?: number
+        status?: string
+        note?: string | null
+        user_id?: string | null
+        created_at?: string
+      }
+    }
   }
 }
 
@@ -392,7 +563,7 @@ class SupabaseService {
     // Primary client
     this.client = createClient<Database>(
       config.supabase.url,
-      config.supabase.serviceKey,
+      config.supabase.serviceRoleKey,
       {
         auth: {
           autoRefreshToken: false,
@@ -406,28 +577,12 @@ class SupabaseService {
       }
     )
 
-    // Initialize backup clients if available
-    config.supabase.backupUrls.forEach((url, index) => {
-      if (url) {
-        this.backupClients.push(
-          createClient<Database>(
-            url,
-            config.supabase.serviceKey,
-            {
-              auth: {
-                autoRefreshToken: false,
-                persistSession: false
-              },
-              global: {
-                headers: {
-                  'User-Agent': `Optia-BFF/1.0.0 (backup-${index + 1})`
-                }
-              }
-            }
-          )
-        )
-      }
-    })
+    // Backup clients would be initialized here if backup URLs were configured
+    // config.supabase.backupUrls?.forEach((url, index) => {
+    //   if (url) {
+    //     this.backupClients.push(createClient<Database>(url, config.supabase.serviceRoleKey, {...}))
+    //   }
+    // })
 
     logger.info('Supabase service initialized', { totalClients: this.backupClients.length + 1 })
   }
@@ -523,7 +678,7 @@ class SupabaseService {
 
   async rpc(fn: string, args?: any): Promise<any> {
     return this.executeWithFailover(async (client) => {
-      const result = await client.rpc(fn, args)
+      const result = await (client as any).rpc(fn, args)
       return result
     })
   }

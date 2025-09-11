@@ -24,6 +24,19 @@ const envSchema = z.object({
   WC_CONSUMER_SECRET: z.string().min(1, 'WooCommerce consumer secret required'),
   WC_WEBHOOK_SECRET: z.string().min(1, 'WooCommerce webhook secret required'),
   
+  // PayFast (Optional - only if direct integration needed)
+  PAYFAST_MERCHANT_ID: z.string().optional(),
+  PAYFAST_MERCHANT_KEY: z.string().optional(),
+  PAYFAST_PASSPHRASE: z.string().optional(),
+  PAYFAST_SANDBOX: z.string().default('true').transform(s => s === 'true').optional(),
+  
+  // QStash (Optional - for webhook processing)
+  QSTASH_API_URL: z.string().url().optional(),
+  QSTASH_TOKEN: z.string().min(1).optional(),
+  
+  // App
+  APP_BASE_URL: z.string().url().optional(),
+  
   // Supabase (v2)
   SUPABASE_URL: z.string().url('Invalid Supabase URL'),
   SUPABASE_ANON_KEY: z.string().min(1, 'Supabase anon key required'),
@@ -48,6 +61,8 @@ const envSchema = z.object({
   // Performance & Caching
   CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   CACHE_STAMPEDE_TTL: z.coerce.number().int().positive().default(60),
+  CACHE_BULK_MODE_THRESHOLD: z.coerce.number().int().positive().default(10),
+  CACHE_BULK_MODE_WINDOW: z.coerce.number().int().positive().default(5000),
   
   // Rate Limiting
   RATE_LIMIT_QPS: z.coerce.number().int().positive().default(10),
@@ -79,7 +94,7 @@ const envSchema = z.object({
  */
 function getEnvironmentVariables(): Record<string, string | undefined> {
   // Edge Runtime detection
-  const isEdgeRuntime = typeof EdgeRuntime === 'string'
+  const isEdgeRuntime = typeof globalThis !== 'undefined' && 'EdgeRuntime' in globalThis
   
   if (isEdgeRuntime) {
     // In Vercel Edge Runtime, env vars are available on globalThis
@@ -137,6 +152,19 @@ function createConfig() {
       WC_CONSUMER_KEY: validatedEnv.WC_CONSUMER_KEY,
       WC_CONSUMER_SECRET: validatedEnv.WC_CONSUMER_SECRET,
       WC_WEBHOOK_SECRET: validatedEnv.WC_WEBHOOK_SECRET,
+      
+      // PayFast (Optional)
+      PAYFAST_MERCHANT_ID: validatedEnv.PAYFAST_MERCHANT_ID,
+      PAYFAST_MERCHANT_KEY: validatedEnv.PAYFAST_MERCHANT_KEY,
+      PAYFAST_PASSPHRASE: validatedEnv.PAYFAST_PASSPHRASE,
+      PAYFAST_SANDBOX: validatedEnv.PAYFAST_SANDBOX,
+      
+      // QStash (Optional)
+      QSTASH_API_URL: validatedEnv.QSTASH_API_URL,
+      QSTASH_TOKEN: validatedEnv.QSTASH_TOKEN,
+      
+      // App (Optional)
+      APP_BASE_URL: validatedEnv.APP_BASE_URL,
       
       // Supabase
       SUPABASE_URL: validatedEnv.SUPABASE_URL,
@@ -209,6 +237,91 @@ function createConfig() {
  */
 export const env = Object.freeze(createConfig())
 
+// Structured config object for easier access
+export const config = {
+  // Environment
+  nodeEnv: env.NODE_ENV,
+  isDevelopment: env.IS_DEVELOPMENT,
+  isProduction: env.IS_PRODUCTION,
+  
+  // WooCommerce
+  woocommerce: {
+    apiUrl: env.WC_API_URL,
+    consumerKey: env.WC_CONSUMER_KEY,
+    consumerSecret: env.WC_CONSUMER_SECRET,
+    webhookSecret: env.WC_WEBHOOK_SECRET,
+  },
+  
+  // PayFast
+  payfast: {
+    merchantId: env.PAYFAST_MERCHANT_ID,
+    merchantKey: env.PAYFAST_MERCHANT_KEY,
+    passphrase: env.PAYFAST_PASSPHRASE,
+    sandbox: env.PAYFAST_SANDBOX,
+  },
+  
+  // QStash
+  qstash: {
+    apiUrl: env.QSTASH_API_URL,
+    token: env.QSTASH_TOKEN,
+  },
+  
+  // App
+  app: {
+    baseUrl: env.APP_BASE_URL,
+  },
+  
+  // Supabase
+  supabase: {
+    url: env.SUPABASE_URL,
+    anonKey: env.SUPABASE_ANON_KEY,
+    serviceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY,
+  },
+  
+  // Upstash
+  kv: {
+    url: env.UPSTASH_REDIS_REST_URL,
+    token: env.UPSTASH_REDIS_REST_TOKEN,
+  },
+  
+  // CORS
+  cors: {
+    origins: env.CORS_ORIGINS,
+    credentials: true,
+    maxAge: 86400,
+  },
+  
+  // Rate Limiting
+  rateLimiting: {
+    requests: env.RATE_LIMIT_QPS,
+    window: env.RATE_LIMIT_WINDOW,
+  },
+  
+  // Auth
+  auth: {
+    jwtSecret: env.JWT_SECRET || 'dev-secret-key',
+    tokenExpiry: 86400 // 24 hours
+  },
+  
+  // Monitoring
+  monitoring: {
+    sentryDsn: env.SENTRY_DSN
+  },
+  
+  // Tax
+  tax: {
+    rate: 0.085
+  },
+  
+  // Cache Configuration
+  cache: {
+    ttlSeconds: env.CACHE_TTL_SECONDS,
+    stampedeTtl: env.CACHE_STAMPEDE_TTL,
+    bulkModeThreshold: 100, // Default threshold
+    bulkModeWindow: 60, // Default window in seconds
+  },
+} as const
+
 /**
  * Type definition for the configuration
  */
@@ -217,7 +330,7 @@ export type Env = typeof env
 /**
  * Runtime detection helper
  */
-export const isEdgeRuntime = typeof EdgeRuntime === 'string'
+export const isEdgeRuntime = typeof globalThis !== 'undefined' && 'EdgeRuntime' in globalThis
 
 /**
  * Environment helpers

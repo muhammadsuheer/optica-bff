@@ -4,9 +4,9 @@
  */
 
 import { Hono } from 'hono'
-import databaseService from '../services/databaseService'
+import databaseService, { supabaseClient } from '../services/databaseService'
 import { cacheService } from '../services/cacheService'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 import { config } from '../config/env'
 
 const health = new Hono()
@@ -57,7 +57,7 @@ health.get('/ready', async (c) => {
   } catch (error) {
     checks.database = false
     overallStatus = 'not ready'
-    logger.error('Database health check error', { error })
+    logger.error('Database health check error', error instanceof Error ? error : new Error('Unknown error'))
   }
 
   try {
@@ -72,7 +72,7 @@ health.get('/ready', async (c) => {
   } catch (error) {
     checks.cache = false
     overallStatus = 'not ready'
-    logger.error('Cache health check error', { error })
+    logger.error('Cache health check error', error instanceof Error ? error : new Error('Unknown error'))
   }
 
   const status = overallStatus === 'ready' ? 200 : 503
@@ -170,7 +170,7 @@ health.get('/metrics', async (c) => {
       memory: getMemoryUsage()
     })
   } catch (error) {
-    logger.error('Failed to get metrics', { error })
+    logger.error('Failed to get metrics', error instanceof Error ? error : new Error('Unknown error'))
     return c.json({
       error: 'Failed to retrieve metrics',
       timestamp: new Date().toISOString()
@@ -192,7 +192,7 @@ health.post('/reset-cache', async (c) => {
       timestamp: new Date().toISOString()
     })
   } catch (error) {
-    logger.error('Failed to reset cache', { error })
+    logger.error('Failed to reset cache', error instanceof Error ? error : new Error('Unknown error'))
     return c.json({
       error: 'Failed to reset cache',
       timestamp: new Date().toISOString()

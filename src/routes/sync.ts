@@ -6,13 +6,13 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
-import databaseService from '../services/databaseService'
+import databaseService, { supabaseClient } from '../services/databaseService'
 import { cacheService } from '../services/cacheService'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 import { validateRequest, getValidated } from '../middleware/validateRequest'
 import { apiKey } from '../middleware/apiKey'
 import { requireRole } from '../middleware/auth'
-import { endpointRateLimit } from '../middleware/rateLimiter'
+import { rateLimitByKeyAndIP } from '../middleware/rateLimiter'
 
 const sync = new Hono()
 
@@ -32,7 +32,7 @@ const cacheInvalidateSchema = z.object({
 // Apply middleware
 sync.use('*', apiKey({ allowedKeyTypes: ['admin'] }))
 sync.use('*', requireRole(['admin', 'service_role']))
-sync.use('*', endpointRateLimit('sync', { requests: 5, window: 60 })) // 5 sync requests per minute
+sync.use('*', rateLimitByKeyAndIP('sync', { requests: 5, window: 60 })) // 5 sync requests per minute
 
 /**
  * POST /sync/full - Perform full data synchronization
@@ -59,7 +59,7 @@ sync.post('/full',
           await cacheService.invalidateByTags([resource])
           
         } catch (error) {
-          logger.error(`Failed to sync ${resource}`, { error })
+          logger.error(`Failed to sync ${resource}`, error instanceof Error ? error : new Error('Unknown error'))
           syncResults[resource] = {
             success: false,
             error: (error as Error).message
@@ -81,7 +81,7 @@ sync.post('/full',
         timestamp: new Date().toISOString()
       })
     } catch (error) {
-      logger.error('Full sync error', { error })
+      logger.error('Full sync error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Full synchronization failed' })
     }
   }
@@ -102,7 +102,7 @@ sync.post('/incremental',
       const lastSyncTimes = await getLastSyncTimes()
 
       // Sync products modified since last sync
-      if (lastSyncTimes.products) {
+      if (lastSyncTimes.products as any) {
         const productsResult = await syncResource('products', {
           since: lastSyncTimes.products,
           batch_size: 20
@@ -136,7 +136,7 @@ sync.post('/incremental',
         timestamp: new Date().toISOString()
       })
     } catch (error) {
-      logger.error('Incremental sync error', { error })
+      logger.error('Incremental sync error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Incremental synchronization failed' })
     }
   }
@@ -188,7 +188,7 @@ sync.post('/cache/invalidate',
         timestamp: new Date().toISOString()
       })
     } catch (error) {
-      logger.error('Cache invalidation error', { error })
+      logger.error('Cache invalidation error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Cache invalidation failed' })
     }
   }
@@ -204,7 +204,7 @@ sync.get('/status',
       
       return c.json(status)
     } catch (error) {
-      logger.error('Get sync status error', { error })
+      logger.error('Get sync status error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to get sync status' })
     }
   }
@@ -223,7 +223,7 @@ sync.get('/cache/stats',
         timestamp: new Date().toISOString()
       })
     } catch (error) {
-      logger.error('Get cache stats error', { error })
+      logger.error('Get cache stats error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to get cache stats' })
     }
   }
@@ -251,7 +251,7 @@ sync.post('/health-check',
         timestamp: results.timestamp
       }, allHealthy ? 200 : 503)
     } catch (error) {
-      logger.error('Health check error', { error })
+      logger.error('Health check error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Health check failed' })
     }
   }

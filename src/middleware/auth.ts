@@ -6,9 +6,9 @@
 import { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { jwtVerify, SignJWT } from 'jose'
-import { supabase } from '../services/supabase'
+import { supabaseClient } from '../services/supabase'
 import { config } from '../config/env'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 export interface AuthUser {
   id: string
@@ -37,7 +37,7 @@ export function requireAuth() {
       const token = authHeader.replace('Bearer ', '')
       
       // Verify with Supabase (primary method for Supabase-issued tokens)
-      const { data: { user }, error } = await supabase.auth.getUser(token)
+      const { data: { user }, error } = await supabaseClient.auth.getUser(token)
       
       if (error || !user) {
         logger.warn('Invalid auth token', { error: error?.message })
@@ -95,7 +95,7 @@ export function optionalAuth() {
       const token = authHeader.replace('Bearer ', '')
       
       // Verify with Supabase (primary method for Supabase-issued tokens)
-      const { data: { user }, error } = await supabase.auth.getUser(token)
+      const { data: { user }, error } = await supabaseClient.auth.getUser(token)
       
       if (error || !user) {
         logger.warn('Invalid auth token', { error: error?.message })
@@ -263,7 +263,7 @@ export async function createJWT(payload: Record<string, any>, expiresIn: number 
     
     return token
   } catch (error) {
-    logger.error('Failed to create JWT token', { error })
+    logger.error('Failed to create JWT token', error instanceof Error ? error : new Error('Unknown error'))
     throw new Error('Token creation failed')
   }
 }
@@ -281,7 +281,7 @@ export async function verifyJWT(token: string): Promise<any> {
     
     return payload
   } catch (error) {
-    logger.error('Failed to verify JWT token', { error })
+    logger.error('Failed to verify JWT token', error instanceof Error ? error : new Error('Unknown error'))
     throw new Error('Token verification failed')
   }
 }

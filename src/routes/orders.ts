@@ -6,12 +6,12 @@
 import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
-import databaseService from '../services/databaseService'
-import { logger } from '../utils/logger'
+import databaseService, { supabaseClient } from '../services/databaseService'
+import { logger } from '../observability/logger'
 import { validateRequest, getValidated, orderSchema, commonSchemas } from '../middleware/validateRequest'
 import { apiKey, hasPermission } from '../middleware/apiKey'
 import { requireAuth, getCurrentUser, requireRole } from '../middleware/auth'
-import { userRateLimit } from '../middleware/rateLimiter'
+import { rateLimitByKeyAndIP } from '../middleware/rateLimiter'
 
 const orders = new Hono()
 
@@ -32,7 +32,7 @@ const orderQuerySchema = z.object({
 
 // Apply middleware
 orders.use('*', apiKey({ allowedKeyTypes: ['frontend', 'mobile', 'admin'] }))
-orders.use('*', userRateLimit({ requests: 50, window: 300 })) // 50 requests per 5 minutes
+orders.use('*', rateLimitByKeyAndIP('orders', { requests: 50, window: 300 })) // 50 requests per 5 minutes
 
 /**
  * GET /orders - List orders (admin/customer specific)
@@ -76,7 +76,7 @@ orders.get('/',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Get orders error', { error })
+      logger.error('Get orders error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to retrieve orders' })
     }
   }
@@ -113,7 +113,7 @@ orders.get('/:id',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Get order error', { error })
+      logger.error('Get order error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to retrieve order' })
     }
   }
@@ -171,7 +171,7 @@ orders.post('/',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Create order error', { error })
+      logger.error('Create order error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to create order' })
     }
   }
@@ -210,7 +210,7 @@ orders.put('/:id/status',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Update order status error', { error })
+      logger.error('Update order status error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to update order status' })
     }
   }
@@ -251,10 +251,8 @@ orders.post('/:id/cancel',
         await databaseService.releaseInventory(order.line_items)
         logger.info('Inventory released for cancelled order', { orderId: id })
       } catch (inventoryError) {
-        logger.error('Failed to release inventory for cancelled order', { 
-          error: inventoryError, 
-          orderId: id 
-        })
+        logger.error('Failed to release inventory for cancelled order', inventoryError instanceof Error ? inventoryError : new Error('Unknown error'), { 
+          orderId: id})
         // Continue with cancellation even if inventory release fails
       }
 
@@ -278,7 +276,7 @@ orders.post('/:id/cancel',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Cancel order error', { error })
+      logger.error('Cancel order error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to cancel order' })
     }
   }
@@ -317,7 +315,7 @@ orders.get('/:id/tracking',
     } catch (error) {
       if (error instanceof HTTPException) throw error
       
-      logger.error('Get order tracking error', { error })
+      logger.error('Get order tracking error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Failed to retrieve tracking information' })
     }
   }

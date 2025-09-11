@@ -1,61 +1,165 @@
 /**
- * Performance Monitoring Middleware for Edge Runtime
+ * Performance Monitoring Middleware
+ * 
+ * Tracks request performance metrics and adds timing headers
+ * Edge-safe implementation for Vercel Edge Runtime
  */
 
-import { Context, Next } from 'hono'
-import { logger } from '../utils/logger'
+import type { Context, Next } from 'hono'
+import { logger } from '../observability/logger'
+import databaseService, { supabaseClient } from '../services/databaseService'
 
+interface PerformanceMetrics {
+  requestStart: number
+  responseTime: number
+  memoryUsage?: {
+    used: number
+    total: number
+    percentage: number
+  }
+}
+
+/**
+ * Performance monitoring middleware
+ * Tracks timing and adds performance headers
+ */
 export function performanceMonitoring() {
   return async (c: Context, next: Next) => {
-    const start = performance.now()
-    const startTime = Date.now()
+    const startTime = performance.now()
+    const traceId = (c as any).get('traceId') || 'unknown'
     
-    // Add request ID for tracing
-    const requestId = crypto.randomUUID()
-    c.set('requestId', requestId)
+    // Add start time to context
+    c.set('performanceStart', startTime)
     
     try {
       await next()
       
-      const duration = performance.now() - start
-      const statusCode = c.res.status
+      const responseTime = performance.now() - startTime
       
       // Add performance headers
-      c.header('X-Response-Time', `${duration.toFixed(2)}ms`)
-      c.header('X-Request-ID', requestId)
+      c.header('X-Response-Time', `${responseTime.toFixed(2)}ms`)
+      c.header('X-Trace-ID', traceId)
       
-      // Log performance metrics
-      const logData = {
-        requestId,
-        method: c.req.method,
-        path: c.req.path,
-        status: statusCode,
-        duration: `${duration.toFixed(2)}ms`,
-        timestamp: new Date(startTime).toISOString(),
-        userAgent: c.req.header('user-agent')
+      // Log slow requests (> 1 second)
+      if (responseTime > 1000) {
+        logger.warn('Slow request detected', {
+          traceId,
+          path: c.req.path,
+          method: c.req.method,
+          responseTime: `${responseTime.toFixed(2)}ms`,
+          userAgent: c.req.header('user-agent')
+        })
       }
       
-      // Warn on slow requests
-      if (duration > 1000) {
-        logger.warn('Slow request detected', logData)
-      } else if (duration > 500) {
-        logger.info('Request completed (slow)', logData)
-      } else {
-        logger.debug('Request completed', logData)
-      }
+      // Record metrics for analytics (async, don't block response)
+      recordPerformanceMetric(c, responseTime, traceId).catch(error => {
+        logger.error('Failed to record performance metric', error instanceof Error ? error : new Error('Unknown error'))
+      })
       
     } catch (error) {
-      const duration = performance.now() - start
+      const responseTime = performance.now() - startTime
       
-      logger.error('Request failed', {
-        requestId,
-        method: c.req.method,
+      // Add performance headers even for errors
+      c.header('X-Response-Time', `${responseTime.toFixed(2)}ms`)
+      c.header('X-Trace-ID', traceId)
+      
+      logger.error('Request failed with performance tracking', error instanceof Error ? error : new Error('Unknown error'), {
+        traceId,
         path: c.req.path,
-        duration: `${duration.toFixed(2)}ms`,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        method: c.req.method,
+        responseTime: `${responseTime.toFixed(2)}ms`
       })
       
       throw error
     }
+  }
+}
+
+/**
+ * Record performance metric to database
+ * Non-blocking async operation
+ */
+async function recordPerformanceMetric(c: Context, responseTime: number, traceId: string): Promise<void> {
+  try {
+    // Use database service to record metric
+    await databaseService.analytics.logMetric(
+      'request_duration',
+      responseTime,
+      {
+        path: c.req.path,
+        method: c.req.method,
+        status: c.res.status.toString(),
+        traceId
+      }
+    )
+    
+  } catch (error) {
+    // Don't throw - this is best effort logging
+    logger.debug('Failed to record performance metric', { error, traceId })
+  }
+}
+
+/**
+ * Get memory usage (Edge-safe)
+ * Returns mock data in Edge Runtime where process.memoryUsage() isn't available
+ */
+export function getMemoryUsage(): { used: number; total: number; percentage: number } {
+  try {
+    // In Edge Runtime, process.memoryUsage() may not be available
+    if (typeof process !== 'undefined' && process.memoryUsage) {
+      const usage = process.memoryUsage()
+      return {
+        used: usage.heapUsed,
+        total: usage.heapTotal,
+        percentage: Math.round((usage.heapUsed / usage.heapTotal) * 100)
+      }
+    }
+    
+    // Fallback for Edge Runtime
+    return {
+      used: 0,
+      total: 0,
+      percentage: 0
+    }
+  } catch {
+    // Safe fallback
+    return {
+      used: 0,
+      total: 0,
+      percentage: 0
+    }
+  }
+}
+
+/**
+ * Performance timing utility
+ * Measures execution time of async operations
+ */
+export async function measureAsync<T>(
+  operation: () => Promise<T>,
+  operationName: string,
+  traceId?: string
+): Promise<{ result: T; duration: number }> {
+  const startTime = performance.now()
+  
+  try {
+    const result = await operation()
+    const duration = performance.now() - startTime
+    
+    logger.debug(`Operation completed: ${operationName}`, {
+      duration: `${duration.toFixed(2)}ms`,
+      traceId
+    })
+    
+    return { result, duration }
+  } catch (error) {
+    const duration = performance.now() - startTime
+    
+    logger.error(`Operation failed: ${operationName}`, error instanceof Error ? error : new Error('Unknown error'), {
+      duration: `${duration.toFixed(2)}ms`,
+      traceId
+    })
+    
+    throw error
   }
 }

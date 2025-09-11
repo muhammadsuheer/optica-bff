@@ -6,7 +6,7 @@
  * return the same result without side effects.
  */
 
-import { get, set } from '../adapters/cache'
+import { cacheService } from '../services/cacheService'
 import { idempotencyErrors } from './errors'
 import { logger } from '../observability/logger'
 import type { Context } from 'hono'
@@ -176,7 +176,7 @@ export async function handleIdempotency<T>(
   
   // Check if we've seen this key before
   const cacheKey = getIdempotencyCacheKey(idempotencyKey)
-  const existingRecord = await get<IdempotencyRecord>(cacheKey)
+  const existingRecord = await cacheService.get<IdempotencyRecord>(cacheKey)
   
   if (existingRecord) {
     // Verify the request is identical
@@ -185,7 +185,7 @@ export async function handleIdempotency<T>(
         key: idempotencyKey,
         existingFingerprint: existingRecord.fingerprint,
         newFingerprint: fingerprint,
-        traceId: c.get('traceId')
+        traceId: (c as any).get('traceId')
       })
       
       throw idempotencyErrors.keyConflict(idempotencyKey, existingRecord.status)
@@ -195,7 +195,7 @@ export async function handleIdempotency<T>(
     logger.info('Returning idempotent response', {
       key: idempotencyKey,
       status: existingRecord.status,
-      traceId: c.get('traceId')
+      traceId: (c as any).get('traceId')
     })
     
     // Set response headers
@@ -237,13 +237,13 @@ export async function handleIdempotency<T>(
     expiresAt: expiresAt.toISOString()
   }
   
-  await set(cacheKey, record, ttl)
+  await cacheService.set(cacheKey, record, { ttl })
   
   logger.info('Stored idempotent response', {
     key: idempotencyKey,
     status,
     ttl,
-    traceId: c.get('traceId')
+    traceId: (c as any).get('traceId')
   })
   
   return result
@@ -349,7 +349,7 @@ export async function cleanupExpiredRecords(): Promise<number> {
     logger.info('Idempotency cleanup completed (TTL-based expiration)')
     return 0
   } catch (error) {
-    logger.error('Idempotency cleanup failed', { error })
+    logger.error('Idempotency cleanup failed', error instanceof Error ? error : new Error('Unknown error'))
     return 0
   }
 }
@@ -358,10 +358,4 @@ export async function cleanupExpiredRecords(): Promise<number> {
 // Exports
 // =======================
 
-export {
-  handleIdempotency,
-  idempotencyMiddleware,
-  cleanupExpiredRecords,
-  type IdempotencyRecord,
-  type IdempotencyOptions
-}
+// Exports handled above

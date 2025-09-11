@@ -9,7 +9,7 @@
  * - TypeScript type safety
  */
 
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 import { env } from '../config/env'
 
 // KV Client Configuration
@@ -59,9 +59,9 @@ class KVClient {
 
   constructor(customConfig: Partial<KVConfig> = {}) {
     this.config = {
-      url: config.kv.url,
-      token: config.kv.token,
-      readOnlyToken: config.kv.readOnlyToken,
+      url: (globalThis as any).KV_REST_API_URL || 'https://example.upstash.io',
+      token: (globalThis as any).KV_REST_API_TOKEN || 'token',
+      readOnlyToken: (globalThis as any).KV_REST_API_READ_ONLY_TOKEN,
       maxRetries: 3,
       baseDelay: 100, // ms
       maxDelay: 2000, // ms
@@ -94,7 +94,7 @@ class KVClient {
 
       return response.data as T
     } catch (error) {
-      logger.error('KV get error', { key, error })
+      logger.error('KV get error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return null
     }
   }
@@ -123,7 +123,7 @@ class KVClient {
       const response = await this.request('POST', '/set', body)
       return response.success
     } catch (error) {
-      logger.error('KV set error', { key, error })
+      logger.error('KV set error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return false
     }
   }
@@ -138,7 +138,7 @@ class KVClient {
       const response = await this.request('POST', '/del', { keys: [key] })
       return response.success && response.data > 0
     } catch (error) {
-      logger.error('KV del error', { key, error })
+      logger.error('KV del error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return false
     }
   }
@@ -164,7 +164,7 @@ class KVClient {
 
       return response.success ? response.data : null
     } catch (error) {
-      logger.error('KV incr error', { key, error })
+      logger.error('KV incr error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return null
     }
   }
@@ -186,7 +186,7 @@ class KVClient {
       const response = await this.request('POST', '/expire', { key, seconds: ttl })
       return response.success && response.data === 1
     } catch (error) {
-      logger.error('KV expire error', { key, ttl, error })
+      logger.error('KV expire error', error instanceof Error ? error : new Error('Unknown error'), {key, ttl})
       return false
     }
   }
@@ -201,7 +201,7 @@ class KVClient {
       const response = await this.request('POST', '/ttl', { key })
       return response.success ? (response.data || -1) : -1
     } catch (error) {
-      logger.error('KV ttl error', { key, error })
+      logger.error('KV ttl error', error instanceof Error ? error : new Error('Unknown error'), {key})
       return -1
     }
   }
@@ -215,7 +215,7 @@ class KVClient {
       const response = await this.request('POST', '/sadd', { key: tagKey, members: [key] })
       return response.success
     } catch (error) {
-      logger.error('KV sadd error', { tag, key, error })
+      logger.error('KV sadd error', error instanceof Error ? error : new Error('Unknown error'), {tag, key})
       return false
     }
   }
@@ -229,7 +229,7 @@ class KVClient {
       const response = await this.request('GET', `/smembers/${encodeURIComponent(tagKey)}`, null, true)
       return response.success ? (response.data || []) : []
     } catch (error) {
-      logger.error('KV smembers error', { tag, error })
+      logger.error('KV smembers error', error instanceof Error ? error : new Error('Unknown error'), {tag})
       return []
     }
   }
@@ -255,7 +255,7 @@ class KVClient {
         }
       } catch (error) {
         result.errors.push(`Tag ${tag}: ${error}`)
-        logger.error('Tag invalidation error', { tag, error })
+        logger.error('Tag invalidation error', error instanceof Error ? error : new Error('Unknown error'), {tag})
       }
     }
 
@@ -287,7 +287,7 @@ class KVClient {
           })
         }
       } catch (error) {
-        logger.error('Bulk get error', { chunk, error })
+        logger.error('Bulk get error', error instanceof Error ? error : new Error('Unknown error'), {chunk})
       }
     }
 
@@ -324,7 +324,7 @@ class KVClient {
           successCount += response.data.filter(r => r === 'OK').length
         }
       } catch (error) {
-        logger.error('Bulk set error', { chunk: chunk.length, error })
+        logger.error('Bulk set error', error instanceof Error ? error : new Error('Unknown error'), {chunk: chunk.length})
       }
     }
 
@@ -341,7 +341,7 @@ class KVClient {
       const response = await this.request('POST', '/del', { keys })
       return response.success ? (response.data || 0) : 0
     } catch (error) {
-      logger.error('Bulk delete error', { keys: keys.length, error })
+      logger.error('Bulk delete error', error instanceof Error ? error : new Error('Unknown error'), {keys: keys.length})
       return 0
     }
   }
@@ -358,8 +358,21 @@ class KVClient {
       })
       return response.success ? response.data : null
     } catch (error) {
-      logger.error('Lua script error', { script, error })
+      logger.error('Lua script error', error instanceof Error ? error : new Error('Unknown error'), {script})
       return null
+    }
+  }
+
+  /**
+   * Health check - alias for ping
+   */
+  async healthCheck(): Promise<{ healthy: boolean; latency: number }> {
+    const start = Date.now()
+    try {
+      await this.ping()
+      return { healthy: true, latency: Date.now() - start }
+    } catch {
+      return { healthy: false, latency: Date.now() - start }
     }
   }
 
@@ -371,7 +384,7 @@ class KVClient {
       const response = await this.request('GET', '/ping', null, true)
       return response.success && response.data === 'PONG'
     } catch (error) {
-      logger.error('KV ping error', { error })
+      logger.error('KV ping error', error instanceof Error ? error : new Error('Unknown error'))
       return false
     }
   }
@@ -384,7 +397,7 @@ class KVClient {
       const response = await this.request('GET', '/info', null, true)
       return response.success ? response.data : null
     } catch (error) {
-      logger.error('KV info error', { error })
+      logger.error('KV info error', error instanceof Error ? error : new Error('Unknown error'))
       return null
     }
   }
@@ -490,7 +503,7 @@ class KVClient {
 export const kvClient = new KVClient()
 
 // Export class for testing
-export { KVClient }
+// Exports handled above
 
 // Export types
 export type { KVConfig, KVSetOptions, KVIncrOptions, KVResponse, BulkSetItem }

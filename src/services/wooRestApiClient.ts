@@ -10,7 +10,7 @@
  */
 
 import { config } from '../config/env'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 export interface WooApiRequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
@@ -176,11 +176,8 @@ class WooRestApiClient {
       status: 0
     }
 
-    logger.error('WooCommerce API request failed after all retries', {
-      method,
-      endpoint,
-      error: error.message
-    })
+    logger.error('WooCommerce API request failed after all retries', error instanceof Error ? error : new Error('Unknown error'), {method,
+      endpoint})
 
     throw error
   }
@@ -382,7 +379,7 @@ class WooRestApiClient {
 export const wooRestApiClient = new WooRestApiClient()
 
 // Export class for testing
-export { WooRestApiClient }
+// Exports handled above
 
 // Export types
-export type { WooApiRequestOptions, WooApiResponse, WooApiError }
+// export type { WooApiRequestOptions, WooApiResponse, WooApiError } // Already exported above

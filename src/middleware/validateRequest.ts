@@ -6,7 +6,7 @@
 import { Context, Next } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 export interface ValidationTarget {
   body?: z.ZodSchema
@@ -106,7 +106,7 @@ export function validateRequest(schemas: ValidationTarget) {
         throw error
       }
       
-      logger.error('Validation middleware error', { error })
+      logger.error('Validation middleware error', error instanceof Error ? error : new Error('Unknown error'))
       throw new HTTPException(500, { message: 'Internal validation error' })
     }
   }

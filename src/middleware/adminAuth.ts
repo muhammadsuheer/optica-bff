@@ -7,7 +7,7 @@
 
 import type { Context, Next } from 'hono'
 import { env } from '../config/env'
-import { logger } from '../utils/logger'
+import { logger } from '../observability/logger'
 
 // =======================
 // Admin Token Validation
@@ -19,7 +19,7 @@ import { logger } from '../utils/logger'
  */
 export function adminAuthMiddleware() {
   return async (c: Context, next: Next) => {
-    const traceId = c.get('traceId')
+    const traceId = (c as any).get('traceId')
     const adminToken = c.req.header('x-admin-token')
     
     if (!adminToken) {
@@ -64,7 +64,7 @@ export function adminAuthMiddleware() {
  */
 export function optionalAdminAuthMiddleware() {
   return async (c: Context, next: Next) => {
-    const traceId = c.get('traceId')
+    const traceId = (c as any).get('traceId')
     const adminToken = c.req.header('x-admin-token')
     
     if (adminToken) {

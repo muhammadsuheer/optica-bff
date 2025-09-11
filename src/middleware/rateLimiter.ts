@@ -1,210 +1,47 @@
-/**
- * Rate Limiter Middleware for Edge Runtime
- * Uses KV (Upstash Redis) for atomic, distributed rate limiting
- */
-
-import { Context, Next } from 'hono'
-import { HTTPException } from 'hono/http-exception'
+import type { Context, Next } from 'hono'
 import { kvClient } from '../lib/kvClient'
-import { config } from '../config/env'
-import { logger } from '../utils/logger'
+import { errorJson } from '../lib/errors'
 
-export interface RateLimitOptions {
-  requests: number
-  window: number // in seconds
-  keyGenerator?: (c: Context) => string
-  skipIf?: (c: Context) => boolean
-  onLimitReached?: (c: Context) => void
+type Bucket = { limit: number; windowSec: number }
+type Opts = { byApiKey?: Bucket; byIP?: Bucket }
+
+async function hit(bucket: Bucket, key: string) {
+  const now = Math.floor(Date.now() / 1000)
+  const windowKey = `rl:${key}:${Math.floor(now / bucket.windowSec)}`
+  // INCR + set expiry if first hit
+  const current = await kvClient.incr(windowKey)
+  if (current === 1) await kvClient.expire(windowKey, bucket.windowSec)
+  return { current: current || 0, remaining: Math.max(bucket.limit - (current || 0), 0) }
 }
 
-export interface RateLimitInfo {
-  requests: number
-  remaining: number
-  reset: number
-  limit: number
-}
-
-/**
- * Rate limiter using KV for atomic, distributed limiting
- */
-export function rateLimit(options: RateLimitOptions) {
-  const {
-    requests = config.rateLimiting.requests,
-    window = config.rateLimiting.window,
-    keyGenerator = defaultKeyGenerator,
-    skipIf,
-    onLimitReached
-  } = options
-
+export function rateLimitByKeyAndIP(name: string, config: { requests: number; window: number }) {
+  const opts: Opts = {
+    byApiKey: { limit: config.requests, windowSec: config.window },
+    byIP: { limit: config.requests, windowSec: config.window }
+  }
   return async (c: Context, next: Next) => {
-    // Skip rate limiting if condition is met
-    if (skipIf && skipIf(c)) {
-      await next()
-      return
+    const traceId = (c as any).get('traceId')
+    // prefer API key if present
+    const apiKey = c.req.header('X-API-Key')
+    if (opts.byApiKey && apiKey) {
+      const res = await hit(opts.byApiKey, `k:${apiKey}`)
+      c.header('X-RateLimit-Limit', String(opts.byApiKey.limit))
+      c.header('X-RateLimit-Remaining', String(res.remaining))
+      if ((res.current || 0) > opts.byApiKey.limit) {
+        return errorJson(c, 'RATE_LIMIT', 'API key rate limit exceeded', 429, undefined, traceId)
+      }
+      return next()
     }
-
-    const key = `ratelimit:${keyGenerator(c)}`
-    const now = Math.floor(Date.now() / 1000)
-
-    try {
-      // Use atomic increment with expiry for sliding window
-      const current = await kvClient.incr(key)
-      
-      // Set expiry on first increment
-      if (current === 1) {
-        await kvClient.expire(key, window)
+    // fallback to IP
+    if (opts.byIP) {
+      const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown'
+      const res = await hit(opts.byIP, `ip:${ip}`)
+      c.header('X-RateLimit-Limit', String(opts.byIP.limit))
+      c.header('X-RateLimit-Remaining', String(res.remaining))
+      if ((res.current || 0) > opts.byIP.limit) {
+        return errorJson(c, 'RATE_LIMIT', 'IP rate limit exceeded', 429, undefined, traceId)
       }
-
-      // Get TTL to calculate reset time
-      const ttl = await kvClient.ttl(key)
-      const resetTime = ttl > 0 ? now + ttl : now + window
-
-      // Check if limit exceeded
-      if (current > requests) {
-        const rateLimitInfo: RateLimitInfo = {
-          requests: current,
-          remaining: 0,
-          reset: resetTime,
-          limit: requests
-        }
-
-        // Set rate limit headers
-        setRateLimitHeaders(c, rateLimitInfo)
-
-        if (onLimitReached) {
-          onLimitReached(c)
-        }
-
-        logger.warn('Rate limit exceeded', {
-          key,
-          requests: current,
-          limit: requests,
-          window,
-          ip: getClientIP(c),
-          userAgent: c.req.header('user-agent')
-        })
-
-        throw new HTTPException(429, { 
-          message: 'Too Many Requests',
-          cause: 'Rate limit exceeded'
-        })
-      }
-
-      // Set rate limit headers
-      const rateLimitInfo: RateLimitInfo = {
-        requests: current,
-        remaining: Math.max(0, requests - current),
-        reset: resetTime,
-        limit: requests
-      }
-
-      setRateLimitHeaders(c, rateLimitInfo)
-
-      logger.debug('Rate limit check passed', {
-        key,
-        requests: current,
-        remaining: rateLimitInfo.remaining,
-        limit: requests,
-        window
-      })
-
-      await next()
-    } catch (error) {
-      if (error instanceof HTTPException) {
-        throw error
-      }
-
-      logger.error('Rate limiter error', { error, key })
-      
-      // Fail open - allow request if rate limiter fails
-      logger.warn('Rate limiter failed, allowing request', { key })
-      await next()
     }
+    await next()
   }
-}
-
-/**
- * Default key generator based on IP address
- */
-function defaultKeyGenerator(c: Context): string {
-  return getClientIP(c)
-}
-
-/**
- * Get client IP address from various headers
- */
-function getClientIP(c: Context): string {
-  const forwarded = c.req.header('x-forwarded-for')
-  const realIP = c.req.header('x-real-ip')
-  const cfConnectingIP = c.req.header('cf-connecting-ip')
-  
-  if (cfConnectingIP) return cfConnectingIP
-  if (realIP) return realIP
-  if (forwarded) return forwarded.split(',')[0].trim()
-  
-  return 'unknown'
-}
-
-/**
- * Set rate limit headers on response
- */
-function setRateLimitHeaders(c: Context, info: RateLimitInfo): void {
-  c.header('X-RateLimit-Limit', String(info.limit))
-  c.header('X-RateLimit-Remaining', String(info.remaining))
-  c.header('X-RateLimit-Reset', String(info.reset))
-  
-  if (info.remaining === 0) {
-    c.header('Retry-After', String(info.reset - Math.floor(Date.now() / 1000)))
-  }
-}
-
-/**
- * API key based rate limiter
- */
-export function apiKeyRateLimit(options: Partial<RateLimitOptions> = {}) {
-  return rateLimit({
-    requests: config.rateLimiting.requests,
-    window: config.rateLimiting.window,
-    ...options,
-    keyGenerator: (c: Context) => {
-      const apiKey = c.req.header('x-api-key') || c.req.header('authorization')?.replace('Bearer ', '')
-      if (apiKey) {
-        return `api_key:${apiKey.substring(0, 16)}`
-      }
-      return defaultKeyGenerator(c)
-    }
-  })
-}
-
-/**
- * User-based rate limiter
- */
-export function userRateLimit(options: Partial<RateLimitOptions> = {}) {
-  return rateLimit({
-    requests: config.rateLimiting.requests,
-    window: config.rateLimiting.window,
-    ...options,
-    keyGenerator: (c: Context) => {
-      const user = c.get('user')
-      if (user?.id) {
-        return `user:${user.id}`
-      }
-      return defaultKeyGenerator(c)
-    }
-  })
-}
-
-/**
- * Endpoint-specific rate limiter
- */
-export function endpointRateLimit(endpoint: string, options: Partial<RateLimitOptions> = {}) {
-  return rateLimit({
-    requests: 60, // Default 60 requests per window for endpoints
-    window: 300,  // 5 minutes
-    ...options,
-    keyGenerator: (c: Context) => {
-      const ip = getClientIP(c)
-      return `endpoint:${endpoint}:${ip}`
-    }
-  })
 }
